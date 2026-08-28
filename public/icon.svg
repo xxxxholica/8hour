@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#f2ede6"/>
+  <defs>
+    <!-- 滲み用: にじみをぼかしつつ、輪郭を乱数で揺らして丸い縁取りっぽさを消す。 -->
+    <filter id="ink-bleed" x="-30%" y="-30%" width="160%" height="160%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="3" result="noise-b"/>
+      <feDisplacementMap in="SourceGraphic" in2="noise-b" scale="16" xChannelSelector="R" yChannelSelector="G"/>
+      <feGaussianBlur stdDeviation="1.4"/>
+    </filter>
+    <!-- 本体用: ぼかしはやめ、乱数で輪郭をがさつかせて筆の穂先（かすれ・毛羽立ち）
+         っぽくする——ガウスぼかしだけだとロゴのドロップシャドウのように見えて
+         しまい、筆で書いた質感が出ない（ユーザー指摘）。 -->
+    <filter id="ink-rough" x="-20%" y="-20%" width="140%" height="140%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.05" numOctaves="3" seed="7" result="noise-r"/>
+      <feDisplacementMap in="SourceGraphic" in2="noise-r" scale="9" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+  </defs>
+  <!-- 滲み（下地）: 本体より太く広げ、輪郭をがさつかせてから軽くぼかし、
+       紙に滲み出た墨のように見せる。 -->
+  <g fill="none" stroke="#0c0908" stroke-linecap="round" opacity="0.45" filter="url(#ink-bleed)">
+    <path d="M402,303 C395,326 378,344 361,361" stroke-width="64"/>
+    <path d="M361,361 C344,378 327,396 304,403" stroke-width="61"/>
+    <path d="M304,403 C281,410 257,405 233,401" stroke-width="62"/>
+    <path d="M233,401 C209,397 186,393 167,379" stroke-width="58"/>
+    <path d="M167,379 C148,365 137,343 126,322" stroke-width="56"/>
+    <path d="M126,322 C115,301 103,280 103,256" stroke-width="52"/>
+    <path d="M103,256 C103,232 113,210 124,189" stroke-width="50"/>
+    <path d="M124,189 C135,168 147,145 166,131" stroke-width="46"/>
+    <path d="M166,131 C185,117 209,115 233,111" stroke-width="42"/>
+    <path d="M233,111 C257,107 280,104 303,111" stroke-width="38"/>
+    <path d="M303,111 C326,118 343,135 360,152" stroke-width="32"/>
+    <path d="M360,152 C377,169 392,187 399,210" stroke-width="24"/>
+  </g>
+  <!-- 本体の一筆。太さが少しずつ変わる12本の曲線をつなげ、濃い墨色を
+       そのまま塗る（にじみ以外はぼかさない）。最後の2本（穂先／尻尾）だけ
+       破線にして、墨がかすれて筆先が割れた感じを出す。 -->
+  <g fill="none" stroke="#0c0908" stroke-linecap="round" filter="url(#ink-rough)">
+    <path d="M402,303 C395,326 378,344 361,361" stroke-width="54"/>
+    <path d="M361,361 C344,378 327,396 304,403" stroke-width="51"/>
+    <path d="M304,403 C281,410 257,405 233,401" stroke-width="52"/>
+    <path d="M233,401 C209,397 186,393 167,379" stroke-width="48"/>
+    <path d="M167,379 C148,365 137,343 126,322" stroke-width="46"/>
+    <path d="M126,322 C115,301 103,280 103,256" stroke-width="42"/>
+    <path d="M103,256 C103,232 113,210 124,189" stroke-width="40"/>
+    <path d="M124,189 C135,168 147,145 166,131" stroke-width="36"/>
+    <path d="M166,131 C185,117 209,115 233,111" stroke-width="32"/>
+    <path d="M233,111 C257,107 280,104 303,111" stroke-width="27"/>
+    <path d="M303,111 C326,118 343,135 360,152" stroke-width="20" stroke-dasharray="26 3 14 4"/>
+    <path d="M360,152 C377,169 392,187 399,210" stroke-width="11" stroke-dasharray="10 3 6 3 8 4"/>
+  </g>
+</svg>
