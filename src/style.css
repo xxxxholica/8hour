@@ -202,8 +202,8 @@ body {
      ダブルタップズームに奪われないようにする——キャンバス側(canvasView.ts)が
      window全体のポインタを監視して独自にピンチズームを実装しているため
      （ユーザー指示：「画面のどこでもズームを実行可能にしたい」）。
-     pan-x/pan-yは残すことで、一覧のスクロール（.shared-room-list等）や
-     ページ内の各スクロール領域は従来通り効く。 */
+     pan-x/pan-yは残すことで、一覧のスクロール等、ページ内の各スクロール
+     領域は従来通り効く。 */
   touch-action: pan-x pan-y;
   /* ページ自体（html/body）はスクロール・バウンスさせない——中身が
      100dvhにきっちり収まる設計なので、ページ全体がスクロール可能になる
@@ -240,8 +240,8 @@ body {
      最小サイズの合計が実際のビューポート高さを超えたとき#app自体がその分
      はみ出してしまい（html/bodyはoverflow:hiddenでスクロールしないため
      見えないだけで、レイアウト計算上は存在する）、position:fixedで真の
-     ビューポート下端に張り付く.app-footerに対して、通常フローで.smui-view
-     基準に位置決めしている.info-row（セッション開始ボタン等）がズレて潜り込み、
+     ビューポート下端に張り付く.app-footerに対して、通常フローで#canvas-panel
+     基準に位置決めしている.info-row（残り時間ピル等）がズレて潜り込み、
      クリックがフッター側の要素（.toolbar-swatch等）に奪われる不具合があった。
      100dvhをheightにして実際の高さをきっちり合わせることで、フローの下端を
      常にビューポート下端と一致させる（.app-mainのflex:1;min-height:0が
@@ -281,12 +281,11 @@ body {
      （ユーザー報告）、同じ値をここにも明示的に持たせる。 */
   touch-action: pan-x pan-y;
   display: flex;
-  /* ワードマーク（.app-header-left）とview-nav（.app-header-right）は中身の
-     高さが違う（文字の一行 vs パディング付きボタン）ため、center（既定の
-     交差軸中央寄せ）のままだと互いの縦幅が揃わない（ユーザー指摘）。stretch
-     にして両方をこの行の高さいっぱいに広げ、それぞれの内側の
-     align-items:centerで中身を改めて中央寄せすることで、縦幅を揃えたまま
-     見た目は変えない。 */
+  /* ワードマーク（.app-header-left）は中身の高さが違う要素と並ぶことがある
+     ため、center（既定の交差軸中央寄せ）のままだと互いの縦幅が揃わない
+     （ユーザー指摘）。stretchにして両方をこの行の高さいっぱいに広げ、
+     それぞれの内側のalign-items:centerで中身を改めて中央寄せすることで、
+     縦幅を揃えたまま見た目は変えない。 */
   align-items: stretch;
   justify-content: space-between;
   gap: var(--space-4);
@@ -325,41 +324,6 @@ body {
   font-size: var(--text-lg);
   letter-spacing: 0.02em;
   color: var(--ink-solid);
-}
-
-/* --- アカウント表示を右寄せする器。共有ルームメニューは右レンズのラベル横に
-   埋め込むため、ここには置かない（smuiView.ts参照）。 --- */
-.app-header-right {
-  display: flex;
-  align-items: center;
-  gap: 0.875rem;
-}
-
-/* --- ログイン中は「アカウント情報」「ログアウト」の2ボタンを縦に並べる
-   （ユーザー指示：ログアウトボタンをアカウント情報の下に）。未ログイン時は
-   ボタン1つだけなので、column化しても見た目は変わらない。 --- */
-.account-badge {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0.375rem;
-}
-
-.account-badge-warning {
-  font-size: var(--text-2xs);
-  color: oklch(55% 0.15 30);
-}
-
-/* --- アカウント区画のボタン（未ログイン時「ログイン / 新規登録」、ログイン中
-   「アカウント情報」）。以前はアイコンのみの丸ボタンだったが、状態が文言で
-   直接伝わるよう他の.pill-btnと同じ文字ボタンにした（ユーザー指示）。
-   .settings-usage-btnと同じく、テーマ行と左右の余白が揃うよう幅いっぱいに
-   広げる（ユーザー指示）。 --- */
-.account-text-btn {
-  display: block;
-  width: 100%;
-  white-space: normal;
-  text-align: center;
 }
 
 .app-main {
@@ -534,26 +498,6 @@ body[data-view="shared"] #duration-slot {
      style.transitionDurationとして設定するため、ここでは指定しない。 */
   transition-property: opacity;
   transition-timing-function: ease;
-}
-
-/* 白い罫線の紙の上に直接置かれるボタンなので、.pill-btnの既定色（地色に近い
-   oklch(93%)）では紙に溶けてしまう——キャンバスを書き始める最初の主要な
-   操作でもあるため、.pill-btn--primary（インク色の塗り）にして紙の上でも
-   確実に目立たせる（UI再設計）。 */
-.canvas-empty-template-btn {
-  pointer-events: auto;
-  font-size: var(--text-sm);
-  padding: 0.4375rem 0.875rem;
-  box-shadow: var(--shadow-card);
-}
-
-/* --- SMUI（共有）のパネル。通常キャンバスと同じ大きさの円を出すため、
-   view-panelの既定(align-items:center)を上書きしてstretchにし、
-   .smui-canvas-wrapがパネルいっぱいの高さを持てるようにする——これが無いと
-   .smui-viewは中身ぶんの高さしか持たず、共有キャンバスがキャンバスタブの円の
-   ように縦方向の余白を使い切れない。 --- */
-#shared-panel {
-  align-items: stretch;
 }
 
 /* --- .app-headerと同じ理由でposition:fixedの半透明+ぼかしの帯にし、画面の
@@ -1083,8 +1027,7 @@ body[data-view="shared"] #duration-slot {
    つまみを置く形に作り直した（UI再設計）。ペンの太さは選べる仕様をやめ常に
    PEN_LINE_WIDTH固定にしたため、専用スライダー（旧.thickness-slider）は
    廃止した（toolbar.ts参照）。 --- */
-.duration-seekbar-slider,
-.session-slider {
+.duration-seekbar-slider {
   appearance: none;
   width: 100%;
   min-width: 4rem;
@@ -1094,22 +1037,19 @@ body[data-view="shared"] #duration-slot {
   cursor: pointer;
 }
 
-.duration-seekbar-slider::-webkit-slider-runnable-track,
-.session-slider::-webkit-slider-runnable-track {
+.duration-seekbar-slider::-webkit-slider-runnable-track {
   height: 0.1875rem;
   border-radius: var(--radius-full);
   background: var(--ink-20);
 }
 
-.duration-seekbar-slider::-moz-range-track,
-.session-slider::-moz-range-track {
+.duration-seekbar-slider::-moz-range-track {
   height: 0.1875rem;
   border-radius: var(--radius-full);
   background: var(--ink-20);
 }
 
-.duration-seekbar-slider::-webkit-slider-thumb,
-.session-slider::-webkit-slider-thumb {
+.duration-seekbar-slider::-webkit-slider-thumb {
   appearance: none;
   width: 0.9375rem;
   height: 0.9375rem;
@@ -1121,8 +1061,7 @@ body[data-view="shared"] #duration-slot {
   transition: transform 0.15s ease;
 }
 
-.duration-seekbar-slider::-moz-range-thumb,
-.session-slider::-moz-range-thumb {
+.duration-seekbar-slider::-moz-range-thumb {
   width: 0.9375rem;
   height: 0.9375rem;
   border: 2px solid var(--paper-1);
@@ -1132,13 +1071,11 @@ body[data-view="shared"] #duration-slot {
   transition: transform 0.15s ease;
 }
 
-.duration-seekbar-slider:active::-webkit-slider-thumb,
-.session-slider:active::-webkit-slider-thumb {
+.duration-seekbar-slider:active::-webkit-slider-thumb {
   transform: scale(1.2);
 }
 
-.duration-seekbar-slider:active::-moz-range-thumb,
-.session-slider:active::-moz-range-thumb {
+.duration-seekbar-slider:active::-moz-range-thumb {
   transform: scale(1.2);
 }
 
@@ -1225,9 +1162,8 @@ body[data-view="shared"] #duration-slot {
    アニメーション用、上の.control-panel-body参照）を持つため、既定の
    .icon-popover（トリガーの上に絶対配置）のままだとその境界でちぎれて見えず・
    触れなくなってしまう（ユーザー報告：カラーパレットが上のツールバーと
-   重なって操作できない）。.shared-room-popover/.session-panel-popoverと同じ
-   対処——position:fixedにして祖先のoverflow/グリッドから完全に外へ出し、
-   フッターのすぐ上に画面中央基準で固定表示する。 --- */
+   重なって操作できない）。position:fixedにして祖先のoverflow/グリッドから
+   完全に外へ出し、フッターのすぐ上に画面中央基準で固定表示する。 --- */
 @media (max-width: 480px) {
   .toolbar-custom-color-popover.icon-popover {
     position: fixed;
@@ -1248,9 +1184,9 @@ body[data-view="shared"] #duration-slot {
    ネイティブの<input type="color">（RGB数値等が出てくる）ではなく、Chromeの
    テーマ設定と同じ横1本の色相グラデーションバー（ユーザー指示）——素の
    <input type="range">に虹色のグラデーショントラックを描くだけで、ドラッグ・
-   タップ・キーボード操作がそのまま使える。.duration-seekbar-slider/
-   .session-sliderと同じ構造（appearance:noneのtrack+thumb）だが、trackの
-   背景だけ単色ではなく色相環のグラデーションにしている。 --- */
+   タップ・キーボード操作がそのまま使える。.duration-seekbar-sliderと
+   同じ構造（appearance:noneのtrack+thumb）だが、trackの背景だけ単色では
+   なく色相環のグラデーションにしている。 --- */
 .theme-hue-slider {
   appearance: none;
   width: 100%;
@@ -1385,22 +1321,6 @@ body[data-view="shared"] #duration-slot {
   min-width: 5.625rem;
 }
 
-/* --- 共有キャンバス（コラボ機能）ビュー ------------------------------ */
-
-.shared-signedout {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-3);
-  font-size: var(--text-sm);
-  color: var(--ink-55);
-  text-align: center;
-}
-
-.shared-signedout p {
-  margin: 0;
-}
-
 .archive-empty {
   width: 100%;
   max-width: 30rem;
@@ -1423,103 +1343,12 @@ body[data-view="shared"] #duration-slot {
   border-top: none;
 }
 
-/* --- 「新しいルームを作成」「共有URLをコピー」は他の区画（既存ルームの
-   参加・選択操作）より下、カードの右下に横並びで置く（ユーザー指示）
-   ——新規作成・招待は毎回の操作ではないため、既存ルームの一覧より
-   優先度を下げる。 --- */
-.shared-create-section {
-  display: flex;
-  flex-direction: column;
-  gap: 0.375rem;
-}
-
-.shared-create-actions {
-  display: flex;
-  gap: var(--space-2);
-}
-
-/* ボタン行だけ右寄せにする——.shared-statusはエラー文言が長くなり得るため、
-   全体をalign-items:flex-endにすると右揃えの折り返しで読みにくくなる。 */
-.shared-create-section > .shared-create-actions {
-  align-self: flex-end;
-}
-
-/* --- 「新しいルームを作成」⇔「作成中…」、「共有URLをコピー」⇔
-   「コピーしました」で文字数が変わるたびにボタンの横幅も一緒に縮んでいた
-   （ユーザー指摘）。ラベル側にmin-widthを与えて、短い方の文字列になっても
-   長い方（既定表示）の幅のまま保つ——実測値（Editorial Stationeryの
-   本文フォント基準）。 --- */
-.shared-create-btn-label {
-  display: inline-block;
-  min-width: 6.75rem;
-  text-align: center;
-}
-
-.shared-copy-btn-label {
-  display: inline-block;
-  min-width: 6.125rem;
-  text-align: center;
-}
-
-/* --- 各区画の小見出し（「招待リンク」「参加中のルーム」）。 --- */
+/* --- 各区画の小見出し（設定メニュー内の各セクション見出しなど）。 --- */
 .shared-section-label {
   font-size: var(--text-2xs);
   font-weight: 500;
   color: var(--ink-45);
   margin-bottom: 0.375rem;
-}
-
-/* --- 作成・自動参加のエラー／一時的な状態表示。以前は「作成しました」
-   「リンクをコピーしました」のような成功メッセージも同じ場所に出しており、
-   その分だけ毎回1行分の高さが増減して落ち着きがなかった（ユーザー指摘：
-   無駄な表示で1行使う）。成功はボタン自身の文字を変える・招待リンクが
-   現れることで伝え、ここに出すのはエラーと自動参加中の一時表示だけにした
-   ——空文字の間は<p>の既定marginごと消し、行として場所を取らないようにする。 --- */
-.shared-status {
-  margin: 0;
-  font-size: var(--text-xs);
-  color: var(--ink-50);
-}
-
-.shared-status:empty {
-  display: none;
-}
-
-/* --- 汎用の1行テキスト入力の見た目。旧・招待リンク表示欄のスタイルだったが、
-   その入力欄自体は廃止した（ユーザー指示：ボタン1つに統合）——テンプレート作成時の
-   見出し入力(templatePicker.ts)がクラス名を流用し続けているため、
-   ルールはここに残す。ゲスト参加時の表示名入力(旧guestNameInput)は表示名の
-   収集自体をやめたため削除した(issue #128のリアクション実名表示機能が
-   revertされ、表示名がどこにも使われなくなっていたため)。 --- */
-.shared-invite-input {
-  flex: 1 1 auto;
-  min-width: 0;
-  font: inherit;
-  font-size: var(--text-xs);
-  padding: var(--space-1) var(--space-2);
-  border: 1px solid var(--ink-20);
-  border-radius: 6px;
-  background: var(--paper-1);
-  color: inherit;
-}
-
-.shared-invite-input:disabled {
-  opacity: 0.4;
-}
-
-/* iOS Safariは、フォーカスした入力欄のfont-sizeが16px未満だと「読みやすくする
-   ため」ページ全体を勝手にズームインする。ページ側はtouch-action: pan-x pan-y
-   （html/body、上部参照）でピンチズーム・ダブルタップズームを封じているため、
-   このズームが起きると指でズームを戻す手段が無くなり、ズームしたまま戻せなく
-   なってしまう（ユーザー報告・実機で再現確認）。.shared-invite-input／
-   .shared-room-rename-inputはvar(--text-xs)＝12pxで基準の16pxを下回るため、
-   タッチデバイスに限りフォーカス時のズームが起きない16pxへ底上げする
-   （マウス操作のデスクトップではこの現象自体が起きないため、通常サイズのまま）。 */
-@media (pointer: coarse) {
-  .shared-invite-input,
-  .shared-room-rename-input {
-    font-size: 16px;
-  }
 }
 
 .pill-btn:disabled {
@@ -1528,113 +1357,12 @@ body[data-view="shared"] #duration-slot {
   pointer-events: none;
 }
 
-.shared-room-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  /* 塗りつぶしのピルが隙間なく並ぶと圧迫感が出る（ユーザー指摘）ため、
-     項目同士の間隔を広めに取る。 */
-  gap: var(--space-2);
-  /* ルーム数が増えても popover 自体は伸びず、一覧の内側だけスクロールする。 */
-  max-height: 13.75rem;
-  overflow-y: auto;
-  /* スクロールバーとピルの間に余白を持たせる。 */
-  padding-right: 0.125rem;
-}
-
-.shared-room-item {
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
-}
-
-/* ルーム名＋名前変更アイコンをまとめる器。 */
-.shared-room-name-wrap {
-  display: flex;
-  align-items: center;
-  flex: 1 1 auto;
-  min-width: 0;
-  gap: 0.375rem;
-}
-
-/* 名前が長いとポップオーバー幅（.shared-room-popover、上限340px）から
-   はみ出すため、行内で省略表示（…）にする。flexアイテムとしてellipsisが
-   効くにはmin-width:0が必須（既定のautoだと内容の実際の幅まで縮まない）。 */
-.shared-room-btn {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.shared-room-btn[aria-pressed="true"] {
-  background: var(--paper-3);
-  color: var(--ink-95);
-  font-weight: 600;
-}
-
-/* --- ルーム項目の「編集」ボタン（名前を変更のトリガー）。以前はアイコンのみの
-   丸ボタンにしていたが、文字の方が分かりやすい（ユーザー指示）ため
-   .pill-btnの文字ボタンに戻した。以前は「名前を変更」をホバー/長押しで開く
-   別メニューに格上げしていたが、そのメニューがbody直下（.icon-anchorの外）
-   にあったため、exclusivePopover.tsの「ポップオーバー外をクリックしたら
-   閉じる」判定に引っかかり、メニュー内のボタンを押した瞬間にルームメニュー
-   全体が閉じて名前変更が機能しなくなっていた（ユーザー指摘・診断）。
-   アクションは1つしかなく別メニューに格上げする意味も薄いため、常時表示の
-   ボタンに戻した（.icon-anchorの内側に留まるため上記の問題も起きない）。 --- */
-.shared-room-rename {
-  flex: 0 0 auto;
-  /* 「退室」（赤み）との対比で、より控えめなグレー寄りの色にする
-     （ユーザー指示）——.pill-btn既定の--ink-85より不透明度を下げるだけで、
-     色相自体は変えない。 */
-  color: var(--ink-55);
-}
-
-/* --- リネーム中、ルーム名ボタン(.shared-room-btn)をこの入力欄に置き換える
-   （sharedRoomMenu.tsのstartRename参照）。ボタンと違う見た目・サイズだと
-   置き換わった瞬間に不格好に浮いて見える（ユーザー指摘）ため、.pill-btn/
-   .shared-room-btnと同じpadding・font-size・border-radiusにして、
-   ボタン⇔入力欄の切り替えが同じ大きさのまま起きるようにする。 --- */
-.shared-room-rename-input {
-  flex: 1 1 auto;
-  min-width: 0;
-  font: inherit;
-  font-size: var(--text-xs);
-  /* .pill-btn/.shared-room-btnは枠線を持たない(border:none)ぶん、そのまま
-     同じ padding だと枠線1pxずつ(計2px)背が高くなってしまう——上下の
-     paddingを1pxずつ削って総高さを完全に一致させる。 */
-  padding: var(--space-1) var(--space-3);
-  border: 1px solid var(--ink-20);
-  border-radius: var(--radius-full);
-  background: var(--paper-1);
-  color: inherit;
-}
-
-/* 破壊的な操作だと分かるよう、他のピルよりわずかに赤みを持たせる
-   （押す前にconfirm()でも確認するが、見た目でも区別できるようにする）。
-   他のメンバーが誰も残っていない場合はルーム自体の削除に繋がる操作
-   （POST /shared-canvases/:id/leave、バックエンド仕様）。彩度(chroma)を
-   抑えめにして、警告色ではあっても刺々しくない柔らかい赤にする
-   （ユーザー指示）。 */
-.shared-room-leave {
-  flex: 0 0 auto;
-  color: oklch(55% 0.09 25 / 0.85);
-}
-
-.shared-room-leave:hover {
-  background: oklch(92% 0.035 25 / 0.5);
-  color: oklch(48% 0.1 25 / 0.95);
-}
-
 /* --- 文字を主体にしたボタンの共通の見た目。アイコンのみの.toolbar-btnと違い、
    文字だけの装飾なしボタン（旧.text-link）だと押せることが伝わりにくかった
-   （ユーザー指摘）ため、背景色つきのピル型にする。共有ルームメニュー内の
-   「＋ルームを作成」・招待リンクの「コピー」・ルーム一覧の各項目で共通して
-   使う——これらは全部.icon-popover（背景var(--paper-1)）の中に置かれる
-   ため、それより一段暗いトーンにして溶けないようにする（.toolbar-btnの
-   data-active時が.control-blockの上で使っているのと同じ組み合わせ）。 --- */
+   （ユーザー指摘）ため、背景色つきのピル型にする。.icon-popover（背景
+   var(--paper-1)）の中に置かれることが多いため、それより一段暗いトーンに
+   して溶けないようにする（.toolbar-btnのdata-active時が.control-blockの
+   上で使っているのと同じ組み合わせ）。 --- */
 .pill-btn {
   appearance: none;
   border: none;
@@ -1690,21 +1418,6 @@ body[data-view="shared"] #duration-slot {
   }
 }
 
-/* --- 「残り時間」ピル（reviveInfoPill.ts）。.shared-room-trigger等と同じく
-   ポップオーバーの外・ページの地色（oklch(93%...)）に直接置かれるため
-   明るいトーンにする。押せる操作ではないため、カーソル・ホバーの見た目は
-   変化させない（ユーザー指摘：ホバー時の表示が目立ちすぎる——輪郭線を
-   消しただけでなく、ボタンらしい反応も持たせないことで「ただの表示」だと
-   伝わるようにした）。 --- */
-.revive-info-pill {
-  background: var(--paper-1);
-  cursor: default;
-}
-
-.revive-info-pill:hover {
-  background: var(--paper-1);
-}
-
 /* --- 主要な操作（そのカードの中で「まず押すべき」1つ）だけに使う塗りの
    スタイル。これまで全ボタンが同じ地味なグレーのピルで、どれが主要な
    操作か視覚的に伝わらなかった（UI再設計の一環）。インクの色そのものを
@@ -1717,106 +1430,6 @@ body[data-view="shared"] #duration-slot {
 
 .pill-btn.pill-btn--primary:hover {
   background: var(--ink-85);
-}
-
-/* --- トリガーボタン（sharedRoomMenu.ts）だけ、ポップオーバーの外・右レンズの
-   ラベル横（地色var(--paper-2)のページの上）に直接置かれるため、
-   .pill-btnの既定色だと今度はページと同化してしまう——ポップオーバーの
-   カードと同じ明るいトーンに個別で上書きする。開いている間はさらに一段
-   暗くして目立たせる（他の.pill-btnはクリックした瞬間だけの一時的な操作
-   なのでこの状態を持たない）。 --- */
-.shared-room-trigger {
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
-  background: var(--paper-1);
-}
-
-.shared-room-trigger-icon svg {
-  width: 0.875rem;
-  height: 0.875rem;
-  display: block;
-}
-
-.shared-room-trigger:hover {
-  background: var(--paper-2-hover);
-}
-
-.shared-room-trigger[data-active="true"] {
-  background: var(--paper-3);
-}
-
-/* --- 共有ルームメニュー（sharedRoomMenu.ts、右レンズのラベル横）。
-   .icon-popoverの共通の見た目に、このメニュー固有の横幅・縦積みレイアウトを
-   足す。幅が狭いと文字ボタン・招待リンク入力欄が詰まって圧迫感が出やすい
-   （ユーザー指摘）ため、下限・上限とも少し広げてある。 --- */
-.shared-room-popover {
-  min-width: 16.25rem;
-  max-width: min(21.25rem, 90vw);
-  padding: 0.875rem var(--space-4);
-}
-
-/* --- .icon-popoverの既定は「トリガーの真上に、トリガーを中心として」開く
-   （left:50%+transform:translateX(-50%)）。ルーム作成ボタンはinfo-row内で
-   中央寄せされた3ボタンの1つで、画面中央からずれた位置にあることが多いため、
-   モバイル幅では横幅340px近いこのポップオーバーがその位置（横方向）を
-   中心に開くと画面端からはみ出し、リスト（部屋ID・退出ボタン等）が左右で
-   切れて見える（ユーザー報告）。横方向だけトリガー基準ではなく画面中央基準の
-   固定表示に切り替える——部屋一覧という性質上、横位置がトリガーの真上で
-   なくても違和感がない。
-   縦方向は画面中央（top:50%）にすると、ボタン自体は画面下寄り（info-row、
-   フッターのすぐ上）にあるのに対してポップオーバーが画面中央付近まで
-   離れてしまい、ボタンから遠すぎて浮いて見える（ユーザー指摘）。縦方向は
-   トリガーの真上（info-rowのすぐ上）に留めたいので、info-row自身の位置
-   （bottom: var(--app-footer-height) + 8px、style.css .info-row参照）に
-   info-rowの高さ(34px、固定値——.info-row参照)と見た目の隙間(10px)を足した
-   位置を基準にする——画面中央基準にするのは横方向のはみ出し対策のためだけで、
-   縦方向まで画面中央にする必要は無い。
-   属性セレクタ込みの分.icon-popoverの基本ルールより詳細度が高いため、
-   ファイル内の前後関係に関わらず確実に勝つ。 */
-@media (max-width: 480px) {
-  .shared-room-popover.icon-popover {
-    position: fixed;
-    left: 50%;
-    top: auto;
-    right: auto;
-    bottom: calc(var(--app-footer-height, 100px) + 8px + 34px + 10px);
-    margin: 0;
-    max-width: min(21.25rem, 92vw);
-    max-height: 60vh;
-    overflow-y: auto;
-    transform: translateX(-50%) translateY(6px);
-  }
-
-  .shared-room-popover.icon-popover.is-visible {
-    transform: translateX(-50%) translateY(0);
-  }
-}
-
-/* --- .session-panel-popoverも.shared-room-popoverと同じ理由でモバイル幅では
-   はみ出す（ユーザー報告：スマホでセッションのメニューが画面内に収まって
-   いない）——トリガー（セッションのpill-btn）はinfo-row内で中央寄せされた
-   3ボタンの1つで画面中央からずれており、min-width:260pxのこのポップオーバー
-   がトリガー中心（.icon-popover既定のleft:50%+transform:translateX(-50%)）
-   で開くと画面端からはみ出す。.shared-room-popoverと同じ対処（横方向は
-   画面中央基準の固定表示、縦方向はinfo-rowのすぐ上）を適用する。 --- */
-@media (max-width: 480px) {
-  .session-panel-popover.icon-popover {
-    position: fixed;
-    left: 50%;
-    top: auto;
-    right: auto;
-    bottom: calc(var(--app-footer-height, 100px) + 8px + 34px + 10px);
-    margin: 0;
-    max-width: min(21.25rem, 92vw);
-    max-height: 60vh;
-    overflow-y: auto;
-    transform: translateX(-50%) translateY(6px);
-  }
-
-  .session-panel-popover.icon-popover.is-visible {
-    transform: translateX(-50%) translateY(0);
-  }
 }
 
 /* --- 「メガネ1」「メガネ2」切り替えタブ(issue #113④)。.toolbar-btnは38px角の
@@ -1873,17 +1486,6 @@ body[data-view="shared"] #duration-slot {
   background: var(--paper-3);
 }
 
-/* --- 共有タブの.info-row（ルーム作成・セッション開始・設定）に並ぶトリガーの
-   高さを揃える（ユーザー指摘：メニューのサイズがまばらでUXが悪い）。設定
-   （アイコンのみ、正円）が32pxの固定サイズなので、文字を持つ他（いずれも
-   .pill-btn基準でパディングとフォントの高さぶんの27pxだった）をそこへ合わせる。
-   「見た目の設定」（旧.appearance-trigger）は設定メニューへ統合済みのため、
-   この行にはもう並ばない(issue #154)。 --- */
-.shared-room-trigger,
-.session-panel-trigger {
-  height: 2rem;
-}
-
 /* --- 設定メニュー内の「PNG」「TXT」書き出しボタンを1行に並べる（ユーザー
    指示）。均等に幅を分け、テーマ行・使い方ボタンと同じ左右の余白に揃える。 --- */
 .export-row {
@@ -1896,8 +1498,8 @@ body[data-view="shared"] #duration-slot {
   text-align: center;
 }
 
-/* --- 失敗時・ルーム未選択時のエラーだけをここに出す（.shared-statusと同じ
-   考え方）。空文字の間は<p>の既定marginごと消し、行として場所を取らない。 --- */
+/* --- 失敗時のエラーだけをここに出す。空文字の間は<p>の既定marginごと消し、
+   行として場所を取らない。 --- */
 .export-status {
   margin: var(--space-1) 0.125rem 0;
   max-width: 12.5rem;
@@ -1961,139 +1563,18 @@ body[data-view="shared"] #duration-slot {
   text-align: center;
 }
 
-/* --- 「テンプレートを使用」ボタン。道具バー・空キャンバス中央の案内から
-   設定メニューへ移した（ユーザー指示）——.settings-usage-btnと同じく、
-   テーマ行と左右の余白が揃うよう幅いっぱいに広げる。 --- */
-.settings-template-btn {
-  display: block;
-  width: 100%;
-  text-align: center;
-}
-
 .settings-popover.is-visible {
   transform: translateY(0);
 }
 
-/* --- 共同アイデア出しセッション(sessionPanel.ts)のトリガーボタン。他の
-   トリガー(.shared-room-trigger/.appearance-trigger)と同じ理由（ページの
-   地色var(--paper-2)に.pill-btnの既定背景が同化してしまう）でトーンを
-   個別に上書きする——これが無いと、隣に並ぶ2つのボタンだけ明るく浮いて
-   見え、このボタンだけ色が違って見えてしまう（ユーザー指摘）。 */
-.session-panel-trigger {
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
-  background: var(--paper-1);
-}
-
-.session-panel-trigger:hover {
-  background: var(--paper-2-hover);
-}
-
-.session-panel-trigger svg {
-  width: 1rem;
-  height: 1rem;
-  flex: 0 0 auto;
-}
-
-/* 残り時間の数字部分だけをtabular-nums化し、.session-form-value(1962-1967行目)と
-   同じ考え方でmin-widthを敷く——桁数が変わる(分の表示が消える、2桁→1桁になる等)
-   たびにボタン幅がガタつくのを防ぐ(issue #152)。フェーズ名部分はここに含めない
-   （フェーズ名は残り時間ほど頻繁に変わらず、対象外でよい）。 */
-.session-panel-trigger-time {
-  display: inline-block;
-  min-width: 3em;
-  font-variant-numeric: tabular-nums;
-}
-
-/* --- 共同アイデア出しセッション(sessionPanel.ts)のポップアップ。開始フォームの
-   スライダー・進行中の操作ボタンを縦に並べる。項目数が多くギチギチに
-   詰まって見えていた（ユーザー指摘）ため、余白・行間とも広めに取っている。 --- */
-.session-panel-popover {
-  min-width: 16.25rem;
-  padding: 1.125rem var(--space-5);
-}
-
-.session-start-form,
-.session-active-controls {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-
-/* --- "results"(投票確定後の結果ロック、issue #114/#119対応)中の案内文。
-   .export-status(1845-1853行目)と同じトーンの控えめな地の文にする。 --- */
-.session-results-hint {
-  margin: 0;
-  font-size: var(--text-sm);
-  color: var(--ink-70);
-  line-height: 1.5;
-}
-
-/* フェーズの長さ・参加人数上限を選ぶスライダー1項目分。ラベルと現在値を
-   同じ行の両端に置き（現在値をスライダーのタイトルの真横ではなく右上に
-   見せたい、というユーザー指示）、その下に全幅のスライダーを敷く。 */
-.session-form-row {
-  display: flex;
-  flex-direction: column;
-  gap: 0.375rem;
-  font-size: 0.85em;
-}
-
-.session-form-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-}
-
-.session-form-label {
-  color: var(--ink-70);
-}
-
-.session-form-row .session-slider {
-  width: 100%;
-}
-
-.session-form-value {
-  font-variant-numeric: tabular-nums;
-  color: var(--ink-70);
-  min-width: 3em;
-  text-align: right;
-}
-
-.shared-room-menu-main {
-  display: flex;
-  flex-direction: column;
-  gap: 0.875rem;
-}
-
-/* --- SMUI（鯖江メガネUI）ビュー：「共有」タブ。個人キャンバスは含まず、
-   大きな眼鏡形状1枚（左右レンズ+ブリッジが1つの連続領域、CircularCanvasの
-   frameKind:"glasses"）だけを表示する。#shared-panelのalign-items:stretch
-   （上で追加）から.smui-view→.smui-canvas-wrapまで「残りの高さを埋める
-   (flex:1 1 auto; min-height:0)」を連鎖させることで、キャンバスがパネルの
-   高さいっぱいまで育つ。.info-row（ルーム作成・見た目設定・残り時間ピル）は
-   #canvas-panelと同じ理由でflexの並びから外し、position:absoluteで重ねる
-   （.info-row参照）。 --- */
-.smui-view {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  padding: var(--space-1);
-  display: flex;
-  flex-direction: column;
-}
-
-/* --- ツールバー直上の情報行。共有タブでは眼鏡キャンバスの下にルーム作成・
-   選択（SharedRoomMenu）、見た目の設定（AppearanceSelector）、残り時間ピルを
-   中央寄せで横並びに置く（ユーザー指示）。キャンバスタブでは残り時間ピルだけを
-   同じ見た目で置く（#canvas-info-row、main.ts）。
-   親（#canvas-panel/.smui-view、いずれもposition:relative）の下端に
-   position:absoluteで重ねる——flexの並びのままだと、この行の分だけ実際の
-   キャンバス要素（#canvas-wrap/.smui-canvas-wrap）が画面の真の下端まで
-   届かず、その隙間からbodyの背景色が透けて見える不具合があった
-   （ユーザー指摘：ツールバーは半透明でブロックの間に隙間があるため、
-   その隙間から色が浮いて見えていた）。中身が無い間（ピル非表示時）は
+/* --- ツールバー直上の情報行（#canvas-info-row、main.ts）。残り時間ピル等を
+   中央寄せで横並びに置く。
+   親（#canvas-panel、position:relative）の下端にposition:absoluteで
+   重ねる——flexの並びのままだと、この行の分だけ実際のキャンバス要素
+   （#canvas-wrap）が画面の真の下端まで届かず、その隙間からbodyの背景色が
+   透けて見える不具合があった（ユーザー指摘：ツールバーは半透明で
+   ブロックの間に隙間があるため、その隙間から色が浮いて見えていた）。
+   中身が無い間（ピル非表示時）は
    キャンバスへのタップ・描画を妨げないよう、この行自体はpointer-events:noneに
    し、実際に見えているボタン・ピル（直接の子要素）にだけpointer-events:auto
    で戻す。
@@ -2128,391 +1609,7 @@ body[data-view="shared"] #duration-slot {
   pointer-events: auto;
 }
 
-.smui-canvas-wrap {
-  flex: 1 1 auto;
-  min-height: 0;
-  width: 100%;
-  position: relative; /* smui-canvas-statusをこの箱基準で重ねて表示するため */
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* --- 中身（実際のCircularCanvas）が入る、差し替え可能な入れ物。ルーム接続時に
-   丸ごと innerHTML="" して作り直すのはこの要素だけで、.smui-canvas-wrap自体と
-   .smui-canvas-status（下記）は消えずに残る。 --- */
-.smui-canvas-inner {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* --- 案内・読み込み中・失敗時のメッセージ。canvas（白い罫線の紙）の上に
-   重ねて表示する。中央の接合部（ブリッジ）には書き込めない（clampToGlasses
-   参照）ため、キャンバス全体の中央(inset:0)に置くとブリッジの真上に乗って
-   しまう——右レンズの中央（ルーム作成ボタンに近い側）に寄せる（ユーザー指示）。
-   実際のtop/leftはsmuiView.tsのrepositionStatus()がcanvas要素自身の
-   getBoundingClientRectを基にpxで設定し直す（canvasはwrap内でレターボックス
-   されることがあり、%指定だけだとズレるため）。ここのtop:50%;left:75%は
-   JSが初回実行される直前の一瞬だけ使われるフォールバック。
-   transform:translate(-50%,-50%)で中心点そのものを指定する方式にしている
-   ——left:50%;right:0+max-widthで「右半分の中でcenter」を組もうとすると、
-   abspos要素にleft/right両方とwidth:autoを与えた場合の幅計算にmax-widthが
-   効かず（実測、Chromium）box幅が右半分いっぱいに広がってしまい、狭い画面で
-   テキストが右レンズの外まではみ出す不具合があったため。 --- */
-.smui-canvas-status {
-  position: absolute;
-  top: 50%;
-  left: 75%;
-  transform: translate(-50%, -50%);
-  width: 42%;
-  text-align: center;
-  font-size: var(--text-sm);
-  color: var(--ink-45);
-  pointer-events: none;
-}
-
-/* --- 全画面のテンプレート選択（templatePicker.ts）。道具バーの小さなポップアップ
-   から、空のキャンバスから開く1画面へ格上げしたもの（ユーザー指示）——「このアプリで
-   何ができるか」を最初に見せる場でもあるため、余白を広く取り、各カードに実際に
-   置かれる文面（罫線の紙・Klee One）をそのまま載せる。
-   z-indexは.text-editor-overlay(20)より上、.icon-popover(5)より当然上。 --- */
-.template-picker {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-6) var(--space-4);
-  background: color-mix(in oklch, var(--paper-2) 82%, transparent);
-  overflow-y: auto;
-}
-
-.template-picker-sheet {
-  width: min(47.5rem, 100%);
-  max-height: calc(100dvh - 48px);
-  overflow-y: auto;
-  padding: 1.375rem var(--space-6) var(--space-6);
-  border-radius: var(--radius-xl);
-  border: 1px solid var(--ink-12);
-  background: var(--paper-1);
-  box-shadow: var(--shadow-popover);
-  transform: translateY(8px) scale(0.985);
-  transition: transform 180ms ease;
-  outline: none;
-}
-
-.template-picker.is-visible .template-picker-sheet {
-  transform: none;
-}
-
-/* ✕ボタンを含む見出し行を、シート内のスクロールに関わらず常に上部へ固定
-   する（ユーザー指摘：カードを見るために下へスクロールした後、閉じるには
-   一度上まで戻らないといけないのはUI/UX上良くない）。sheetの上端パディング
-   （22px 24px）ぶんを負のmarginで打ち消して背景を左右上に少しはみ出させ、
-   同じ値をpaddingとして付け直すことで、stickyで固定された時に背景が
-   シートの角丸・幅いっぱいまで途切れなく続くようにしている。 --- */
-.template-picker-head {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-3);
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  margin: -1.375rem -1.5rem 0;
-  padding: 1.375rem var(--space-6) var(--space-4);
-  background: var(--paper-1);
-  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
-  border-bottom: 1px solid var(--ink-08);
-}
-
-/* 「このアプリで何ができるか」を最初に見せる見出しなので、ワードマークと
-   同じKlee Oneを当て、UI全体がNoto Sans JPの中でここにも特別さを持たせる
-   （UI再設計）。 */
-.template-picker-title {
-  margin: 0;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-family: "Klee One", "Noto Sans JP", sans-serif;
-  font-size: var(--text-lg);
-  font-weight: 600;
-}
-
-.template-picker-title svg {
-  width: 1.125rem;
-  height: 1.125rem;
-  flex: 0 0 auto;
-}
-
-.template-picker-lead {
-  margin: 0.3125rem 0 0;
-  font-size: var(--text-xs);
-  line-height: 1.6;
-  color: var(--ink-55);
-}
-
-.template-picker-close {
-  appearance: none;
-  border: none;
-  background: none;
-  margin-left: auto;
-  flex: 0 0 auto;
-  width: 2rem;
-  height: 2rem;
-  border-radius: var(--radius-full);
-  font-size: var(--text-md);
-  color: var(--ink-60);
-  cursor: pointer;
-  transition: background-color 0.15s ease;
-}
-
-.template-picker-close:hover {
-  background: var(--paper-2);
-}
-
-.template-picker-grid {
-  /* ヘッダー直下にカードが詰まって見えるとの指摘があったため、見出しの
-     padding-bottom(16px)+border-bottomに加えてここでもしっかり余白を取る。 */
-  margin-top: var(--space-5);
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-  gap: var(--space-3);
-}
-
-.template-card {
-  appearance: none;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: 0.875rem;
-  border: 1px solid var(--ink-12);
-  border-radius: 18px;
-  background: color-mix(in oklch, var(--paper-2) 50%, transparent);
-  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
-}
-
-.template-card:hover {
-  background: var(--paper-1);
-  border-color: var(--ink-20);
-  transform: translateY(-1px);
-}
-
-.template-card-label {
-  font-size: var(--text-sm);
-  font-weight: 500;
-}
-
-.template-card-desc {
-  font-size: var(--text-xs);
-  line-height: 1.55;
-  color: var(--ink-55);
-}
-
-/* 置かれたときの見た目そのままを見せる：canvasのテキストと同じKlee One、
-   paper.tsの罫線を模した背景。 */
-.template-card-preview {
-  margin: 0;
-  white-space: pre-line;
-  font-size: var(--text-xs);
-  line-height: 24px;
-  color: var(--ink-80);
-  padding: var(--space-1) 0.625rem 0.375rem;
-  border-radius: 10px;
-  background: repeating-linear-gradient(to bottom, transparent 0 23px, var(--rule-line) 23px 24px) #ffffff;
-}
-
-.template-picker-foot {
-  margin: var(--space-4) 0 0;
-  font-size: var(--text-xs);
-  color: var(--ink-50);
-}
-
-/* --- ユーザー作成テンプレートのカード。削除ボタンをカード本体のボタンに
-   ネストできないため、.template-card自体はdivにし、本文を選ぶボタン
-   （.template-card-choose）とゴミ箱ボタンを兄弟として並べる。 --- */
-.template-card--custom {
-  position: relative;
-  cursor: default;
-}
-
-.template-card-choose {
-  all: unset;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  width: 100%;
-  cursor: pointer;
-  text-align: left;
-  font: inherit;
-  padding-right: 1.375rem;
-}
-
-.template-card-delete {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  width: 1.625rem;
-  height: 1.625rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  appearance: none;
-  border: none;
-  background: none;
-  border-radius: var(--radius-full);
-  color: var(--ink-40);
-  cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
-}
-
-.template-card-delete svg {
-  width: 0.9375rem;
-  height: 0.9375rem;
-}
-
-.template-card-delete:hover {
-  background: var(--paper-2);
-  color: oklch(55% 0.16 25 / 0.9);
-}
-
-/* --- 削除ボタンを押した直後、カードの中身をこの確認表示に置き換える
-   （ユーザー指示：削除する際は確認画面をはさむ）。 --- */
-.template-card-confirm {
-  display: flex;
-  flex-direction: column;
-  gap: 0.625rem;
-}
-
-.template-card-confirm-text {
-  margin: 0;
-  font-size: var(--text-sm);
-  line-height: 1.6;
-  color: var(--ink-80);
-}
-
-.template-card-confirm-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-2);
-}
-
-.template-card-confirm-delete {
-  background: oklch(55% 0.16 25 / 0.15);
-  color: oklch(45% 0.18 25);
-}
-
-.template-card-confirm-delete:hover {
-  background: oklch(55% 0.16 25 / 0.25);
-}
-
-/* --- 「＋ 新規テンプレートを作成」タイル。他のカードと同じ大きさ・角丸で
-   並ぶが、実際のテンプレートではないため破線にして見分けられるようにする。 --- */
-.template-card--create {
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  border-style: dashed;
-  background: transparent;
-}
-
-.template-card-create-plus {
-  font-size: 1.375rem;
-  line-height: 1;
-  color: var(--ink-45);
-}
-
-/* --- 新規テンプレート作成フォーム。カード一覧（.template-picker-grid）と
-   同じシートの中で、hiddenの出し入れだけで切り替える（別の全画面を重ねない）。 --- */
-.template-picker-create {
-  margin-top: 1.125rem;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
-.template-create-input {
-  width: 100%;
-  box-sizing: border-box;
-  margin-top: var(--space-1);
-}
-
-.template-theme-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  margin-top: var(--space-1);
-}
-
-.template-theme-row {
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
-}
-
-.template-theme-row .template-create-input {
-  margin-top: 0;
-}
-
-/* --- テーマ欄の削除ボタン。.template-picker-closeと同じ見た目だが、行の中に
-   収まるよう一段小さくする。 --- */
-.template-theme-remove {
-  width: 1.5rem;
-  height: 1.5rem;
-  font-size: var(--text-xs);
-  flex: 0 0 auto;
-}
-
-.template-picker-create .pill-btn {
-  align-self: flex-start;
-  margin-top: var(--space-1);
-}
-
-.template-create-status {
-  min-height: 1em;
-  margin: 0.625rem 0 0;
-  font-size: var(--text-xs);
-  color: oklch(55% 0.16 25 / 0.9);
-}
-
-.template-create-status:empty {
-  margin: 0;
-}
-
-.template-create-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-2);
-  margin-top: 0.875rem;
-}
-
-@media (max-width: 480px) {
-  .template-picker-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .template-picker-sheet {
-    padding: 1.125rem var(--space-4) var(--space-5);
-    border-radius: var(--radius-lg);
-  }
-
-  /* .template-picker-headの負のmargin（背景を端まで伸ばす分）は、上の
-     .template-picker-sheetのpaddingと同じ値に揃える必要がある。 */
-  .template-picker-head {
-    margin: -1.125rem -1rem 0;
-    padding: 1.125rem var(--space-4) var(--space-4);
-    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-  }
-}
-
-/* --- 使い方ページ（usageGuide.ts）。序・一・二・三・四・結の一続きの読み物。
-   全画面の骨格・余白・フォーカスの作法はtemplate-picker.tsに揃える。 --- */
+/* --- 使い方ページ（usageGuide.ts）。序・一・二・三・四・結の一続きの読み物。 --- */
 .usage-guide {
   position: fixed;
   inset: 0;
@@ -2559,8 +1656,8 @@ body[data-view="shared"] #duration-slot {
 
 /* 以前は本文をスクロールさせていたため、✕ボタンを含む見出しを
    position:stickyで上部に固定していた（負のmarginでsheetの上端パディングを
-   打ち消し、同じ値をpaddingとして付け直す、というtemplate-picker.tsと同じ
-   トリック）。今はページ送り（.usage-guide-pages参照）でスクロール自体が
+   打ち消し、同じ値をpaddingとして付け直すトリック）。今はページ送り
+   （.usage-guide-pages参照）でスクロール自体が
    発生しないため、このトリックは不要——それどころか、sticky要素の隣接
    マージンの扱いが通常のブロックと微妙に異なり、直後の.usage-guide-pagesとの
    間に意図しない負のすき間（マーカーがheadに数px重なる）ができてしまって
@@ -2757,18 +1854,6 @@ body[data-view="shared"] #duration-slot {
    ——全メモが消え切った稀なケースでも出さない。 */
 .tutorial-sandbox-canvas-wrap .canvas-empty-state {
   display: none;
-}
-
-/* 本体ではツールバー直上に出る残り時間ピルを、練習では円の下端へ重ねる。
-   表示・非表示で説明文以下のレイアウトが動かないようabsoluteにする。 */
-.tutorial-sandbox-canvas-wrap .revive-info-pill {
-  position: absolute;
-  z-index: 2;
-  left: 50%;
-  bottom: 12px;
-  transform: translateX(-50%);
-  white-space: nowrap;
-  pointer-events: none;
 }
 
 .tutorial-sandbox-message {
