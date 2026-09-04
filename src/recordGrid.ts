@@ -1,3 +1,4 @@
+import { computeSquareSize } from "./canvasSizing";
 import { dateKeyFor, shiftDateKey } from "./dailyReset";
 import { CANVAS_FRAME_SHAPE } from "./frameShape";
 import { createFadeVisibility } from "./fadeVisibility";
@@ -30,9 +31,23 @@ import { listArchivedDateKeys, loadArchive } from "./storage";
  *
  * 窓の外枠自体もタイトル行・グリッド・週の日付範囲表示を含めて正方形にし
  * （ユーザー指示：本体キャンバスの縮小版のように見せたい）、デスクトップでは
- * 本体キャンバスとほぼ同じ大きさまで拡大する（style.css .record-grid-sheetの
- * デスクトップ分岐参照）。モバイルは従来のサイズのまま変更しない。
+ * 本体キャンバスと同じか、それ以下の大きさになるよう拡大する
+ * （syncDesktopScale参照）。モバイルは従来のサイズのまま変更しない。
  */
+
+/** 本体キャンバス（CircularCanvas、canvasView.ts）の実際の見た目の一辺
+ *  （紙の正方形部分、px）。#canvas-wrapのサイズから、canvasSizing.ts
+ *  fitCanvasToContainerの既定のcontentScaleFactor（main.tsのCircularCanvas
+ *  はこれを上書きしていない）と同じ計算式で逆算する——「過去の記録」の窓を
+ *  本体キャンバスと同じか、それ以下の大きさにする（ユーザー指示）ための
+ *  比較対象。#canvas-wrapが見つからない場合は0を返し、呼び出し側で
+ *  スケール調整自体をスキップするフォールバックにする。 */
+const MAIN_CANVAS_CONTENT_SCALE_FACTOR = 0.43;
+function mainCanvasPaperSizePx(): number {
+  const wrap = document.getElementById("canvas-wrap");
+  if (!wrap) return 0;
+  return computeSquareSize(wrap) * MAIN_CANVAS_CONTENT_SCALE_FACTOR * 2;
+}
 
 /** デスクトップ幅の閾値。style.css側の同名メディアクエリ（.record-grid-sheet等の
  *  正方形レイアウト）と揃える。 */
@@ -72,6 +87,7 @@ function sundayOf(dateKey: string): string {
 
 class RecordGrid {
   private root: HTMLElement;
+  private scaleWrap: HTMLElement;
   private sheet: HTMLElement;
   private grid: HTMLElement;
   private prevWeekBtn: HTMLButtonElement;
@@ -101,13 +117,22 @@ class RecordGrid {
       if (ev.target === this.root) this.close();
     });
 
+    // 本体キャンバスと同じか、それ以下の大きさにする（ユーザー指示）ための
+    // 見た目上の縮小はtransform: scaleで行う——.record-grid-sheet自身は
+    // 開閉フェードのtransform（translateY/scale、下記）を既に持っているため、
+    // 同じプロパティを取り合わないよう、大きさ調整だけを担う専用のラッパーを
+    // 1枚はさむ（syncDesktopScale参照）。
+    this.scaleWrap = document.createElement("div");
+    this.scaleWrap.className = "record-grid-scale-wrap";
+    this.root.appendChild(this.scaleWrap);
+
     this.sheet = document.createElement("section");
     this.sheet.className = "record-grid-sheet";
     this.sheet.setAttribute("role", "dialog");
     this.sheet.setAttribute("aria-modal", "true");
     this.sheet.setAttribute("aria-label", "過去の記録");
     this.sheet.tabIndex = -1;
-    this.root.appendChild(this.sheet);
+    this.scaleWrap.appendChild(this.sheet);
 
     const head = document.createElement("header");
     head.className = "record-grid-head";
@@ -226,10 +251,47 @@ class RecordGrid {
     return btn;
   }
 
+  /** デスクトップだけ、窓（.record-grid-sheet）の見た目の大きさを本体
+   *  キャンバスと同じか、それ以下に収める（ユーザー指示）。.record-grid-sheet
+   *  自体の実寸（3×3グリッド＋余白で決まる、画面幅に関わらずほぼ一定）を、
+   *  本体キャンバスの実際の見た目のサイズ（画面・ウィンドウの大きさに応じて
+   *  変わる）に対する比率でtransform: scaleする——縮小はするが、本体
+   *  キャンバスより大きく見せる方向へは拡大しない（Math.min(1, ...)）。
+   *  安全マージンとして本体キャンバスよりわずかに小さめ（94%）を狙う。 */
+  private syncDesktopScale(): void {
+    if (!window.matchMedia(DESKTOP_BREAKPOINT_QUERY).matches) {
+      this.scaleWrap.style.transform = "";
+      return;
+    }
+    // .record-grid-sheet自身は開閉フェードで別のtransform
+    // （translateY/scale、style.css）を持っており、開いた直後はまだそちらの
+    // トランジションが終わっていないことがある——その途中でgetBoundingClientRect
+    // を呼ぶと、素の実寸ではなく変形途中の中間値を拾ってしまい、幅と高さで
+    // 違う量だけ縮んだ値を測ってしまう（実装時に発生した不具合：測った幅から
+    // 計算したscaleを高さにもそのまま適用した結果、正方形でなくなっていた）。
+    // 測る瞬間だけ一時的にtransformを無効化し、素の実寸を確実に取ってから
+    // 元に戻す。
+    const previousTransform = this.sheet.style.transform;
+    this.sheet.style.transform = "none";
+    const naturalWidth = this.sheet.getBoundingClientRect().width;
+    this.sheet.style.transform = previousTransform;
+
+    const target = mainCanvasPaperSizePx();
+    if (naturalWidth <= 0 || target <= 0) {
+      this.scaleWrap.style.transform = "";
+      return;
+    }
+    const scale = Math.min(1, (target * 0.94) / naturalWidth);
+    this.scaleWrap.style.transform = `scale(${scale})`;
+  }
+
   /** デスクトップ／モバイルの閾値をまたぐ形でウィンドウ幅が変わると
-   *  thumbnailSizePx()の結果自体が変わり得るため、開いている間だけ描き直す。 */
+   *  thumbnailSizePx()の結果自体が変わり得るため、開いている間だけ描き直す。
+   *  本体キャンバスの実際の大きさもウィンドウサイズに応じて変わるため、
+   *  スケール合わせも同時にやり直す。 */
   private onResize = (): void => {
     this.renderWeek();
+    this.syncDesktopScale();
   };
 
   private onKeyDown = (ev: KeyboardEvent): void => {
@@ -254,6 +316,7 @@ class RecordGrid {
     this.refresh();
     this.lastFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     this.setVisible(true);
+    this.syncDesktopScale();
     window.addEventListener("keydown", this.onKeyDown, true);
     window.addEventListener("resize", this.onResize);
     requestAnimationFrame(() => this.sheet.focus());
@@ -367,9 +430,15 @@ function buildWeekdayDummyCell(weekday: number): HTMLElement {
   cell.appendChild(canvas);
   renderDummyThumbnail(canvas, weekday);
 
+  // 半角スペース1文字だと、ブラウザの空白畳み込みでラベルの行自体が
+  // 0×0に潰れてしまい、日付が入った実セルと同じ行にある時だけその行が
+  // （実セルの高さに合わせて）伸びてしまっていた（実装時に発見：グリッドの
+  // 高さが記録の中身によって変わってしまう不具合——ユーザー指示：窓の
+  // 大きさ・形は常に一定にしたい）。折り返し不可の空白（&nbsp;）にすることで
+  // 畳み込まれず、実セルの日付ラベルと同じ行の高さを常に確保できる。
   const label = document.createElement("span");
   label.className = "record-grid-cell-label";
-  label.textContent = " ";
+  label.textContent = " ";
   cell.appendChild(label);
 
   return cell;

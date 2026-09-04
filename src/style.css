@@ -1610,6 +1610,15 @@ body {
   background: color-mix(in oklch, var(--paper-2) 86%, transparent);
 }
 
+/* --- .record-grid-sheetの実寸を、本体キャンバスと同じか、それ以下の大きさに
+   見せるためだけのtransform: scale専用のラッパー（recordGrid.ts
+   syncDesktopScale）。sheet自身は開閉フェードで別のtransform
+   （translateY/scale、下記）を使っているため、大きさ調整をそれと同じ
+   プロパティで奪い合わないよう、器を1枚分けている。 --- */
+.record-grid-scale-wrap {
+  display: flex;
+}
+
 /* 窓の大きさ・形は記録の件数に関わらず常に一定にする（ユーザー指示）——
    中身のグリッド（.record-grid-cells）自体が日〜土＋週送り2マスの9マス
    固定になったため、この器もwidth: min(64rem, 100%)のような画面幅
@@ -1726,8 +1735,14 @@ body {
   filter: var(--canvas-shadow);
 }
 
+/* line-heightを既定（normal）ではなく数値で明示しておく——normalのままだと
+   行の高さがその行の文字のフォント固有の縦方向メトリクスに左右され得る
+   （ダミーセルの行高が実際の日付テキストの行と食い違わないための保険。
+   主な原因はrecordGrid.tsのダミーラベルの空白畳み込みだったが、念のため
+   ここでも文字種に依存しない高さにしておく）。 */
 .record-grid-cell-label {
   font-size: var(--text-2xs);
+  line-height: 1.4;
   color: var(--ink-60);
 }
 
@@ -1786,13 +1801,13 @@ body {
      高さの方が大きくなる（ラベル分の高さが横方向には無い）。グリッドは
      幅fit-content（.record-grid-sheetの既定）で自然な大きさに収まるため、
      外枠を正方形にするには、その分だけ左右の余白を上下より広げて帳尻を
-     合わせる——実測（グリッド width 600px / height 662px）から、上下40px・
-     左右71pxで幅・高さとも742pxになることを確認済み。角丸は当初
+     合わせる——実測（グリッド width 602px / height 712px）から、上下40px・
+     左右95pxで幅・高さとも792pxになることを確認済み。角丸は当初
      CANVAS_FRAME_SHAPEの比率通り15%にしていたが、実際に本体キャンバスと
      並べると風船のように丸すぎたため（ユーザー指摘）、計算式ではなく
      見た目で本体キャンバスに近づくよう11%まで下げて調整している。 */
   .record-grid-sheet {
-    padding: 40px 71px;
+    padding: 40px 95px;
     border-radius: 11%;
     justify-content: center;
   }
@@ -1801,14 +1816,14 @@ body {
      箱自体をこの帯にきっちり収める——中身（ボタンの高さ等）に応じて箱の
      高さが変わる形にすると、位置決めがtop:0のままでは帯からはみ出してグリッド
      と重なってしまう（実装時に発生した不具合）。左右のpaddingは.record-grid-sheet
-     と同じ71pxにして、グリッドの左右端と揃える。 */
+     と同じ95pxにして、グリッドの左右端と揃える。 */
   .record-grid-head {
     position: absolute;
     top: 0;
     left: 0;
     right: 0;
     height: 40px;
-    padding: 0 71px;
+    padding: 0 95px;
   }
 
   .record-grid-title {
@@ -1837,7 +1852,7 @@ body {
     align-items: center;
     justify-content: center;
     margin: 0;
-    padding: 0 71px;
+    padding: 0 95px;
   }
 
   /* セル自体が96px→190pxへ大きくなった分、日付ラベルも比例して見やすい
