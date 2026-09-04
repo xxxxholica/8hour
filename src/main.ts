@@ -5,7 +5,6 @@ import { createFadeVisibility, FADE_TRANSITION_MS } from "./fadeVisibility";
 import { daysBetween, dateKeyFor, performDailyResetIfNeeded, shiftDateKey } from "./dailyReset";
 import { MemoStore } from "./memoStore";
 import { Toolbar } from "./toolbar";
-import { setupControlPanelDrawer } from "./controlPanelDrawer";
 import { SettingsMenu } from "./settingsMenu";
 import {
   loadArchive,
@@ -58,17 +57,19 @@ app.innerHTML = `
     <div class="app-header-left">
       <div id="settings-slot"></div>
     </div>
+    <div class="app-header-right">
+      <div id="history-strip" class="history-strip">
+        <button type="button" id="history-back-tab" class="history-strip-btn" aria-label="前の日へ">◀</button>
+        <span id="history-date-label" class="history-strip-label"></span>
+        <button type="button" id="history-forward-tab" class="history-strip-btn" aria-label="次の日へ" disabled>▶</button>
+      </div>
+    </div>
   </header>
   <main class="app-main">
     <div id="canvas-panel" class="view-panel">
-      <button type="button" id="history-back-tab" class="history-edge-tab history-edge-tab-left" aria-label="前の日へ">◀</button>
-      <button type="button" id="history-forward-tab" class="history-edge-tab history-edge-tab-right" aria-label="次の日へ" disabled>▶</button>
       <div id="canvas-wrap"></div>
       <div id="canvas-info-row" class="info-row"></div>
       <div id="history-view" class="history-view" hidden>
-        <div class="history-nav">
-          <span id="history-date-label" class="history-date-label"></span>
-        </div>
         <div id="archive-canvas-wrap" class="archive-canvas-wrap"></div>
       </div>
       <div id="history-drop-zone" class="history-drop-zone" hidden>
@@ -77,10 +78,10 @@ app.innerHTML = `
     </div>
   </main>
   <footer class="app-footer">
+    <div id="panel-swatch-slot" class="panel-swatches"></div>
     <div class="control-panel">
       <div class="control-panel-body">
         <div id="primary-slot"></div>
-        <button type="button" class="control-panel-handle" aria-label="色・消しゴムサイズの表示を切り替える" aria-expanded="false"></button>
       </div>
     </div>
   </footer>
@@ -99,36 +100,15 @@ const syncAppFooterHeightVar = () => {
 new ResizeObserver(syncAppFooterHeightVar).observe(appFooterEl);
 syncAppFooterHeightVar();
 
-// .app-header（position:fixed、画面上端の半透明の帯）は中身が無い部分も
-// 含めてpointer-eventsを持つため、真下に別の操作可能な要素を置くとクリックを
-// 奪われる。以前はヘッダーの真下に操作可能な要素が無かったため問題化しな
-// かったが、過去めくり画面の「前の日」「次の日」（.history-nav）はキャンバス
-// 上部＝ヘッダーの帯とちょうど重なる位置に来るため、実際の高さを
-// --app-footer-heightと同じ要領で追従させ、.history-navをその分だけ
-// 下げる（style.css参照）。
-const appHeaderEl = document.querySelector<HTMLElement>(".app-header")!;
-const syncAppHeaderHeightVar = () => {
-  document.documentElement.style.setProperty("--app-header-height", `${appHeaderEl.getBoundingClientRect().height}px`);
-};
-new ResizeObserver(syncAppHeaderHeightVar).observe(appHeaderEl);
-syncAppHeaderHeightVar();
-
 const canvasWrap = document.querySelector<HTMLDivElement>("#canvas-wrap")!;
 const primarySlot = document.querySelector<HTMLDivElement>("#primary-slot")!;
+const colorSwatchSlot = document.querySelector<HTMLDivElement>("#panel-swatch-slot")!;
 
 const onToolChange = () => {
   canvasView.closeWritingSession();
   canvasView.finishTextEditingIfOpen();
 };
-const toolbar = new Toolbar(primarySlot, onToolChange, () => canvasView.undo());
-
-// スマホ幅では色/消しゴムサイズを上部ハンドルのタップ/ドラッグで一行展開する
-// （ユーザー指示）。デスクトップ幅では.control-panel-bodyがdisplay:contentsに
-// なりハンドルも隠れるため、常時呼んでおいて問題ない。
-setupControlPanelDrawer(
-  document.querySelector<HTMLDivElement>(".control-panel-body")!,
-  document.querySelector<HTMLButtonElement>(".control-panel-handle")!
-);
+const toolbar = new Toolbar(primarySlot, colorSwatchSlot, onToolChange, () => canvasView.undo());
 
 const getToolState = () => ({
   tool: toolbar.getTool(),
@@ -169,13 +149,14 @@ new SettingsMenu(
   () => canvasView
 );
 
-// 過去めくり画面（E3-02〜04）：キャンバス左端の「◀」タブから、常時フル
-// スクリーンの過去キャンバス（読み取り専用・ドラッグ元、ArchiveCanvas）へ
-// 切り替わる。本日のキャンバス（canvasView）は表示中ただ隠すだけで、DOM上の
-// 場所を動かしたりズーム・パンを退避/固定/復元したりする必要は無い
-// ——ドロップ先は本日のキャンバスの実物ではなく、ドラッグ中だけ画面右端に
-// スライドインする単純な矩形のドロップ帯（ユーザー指示：本日の内容を
-// 事前に視覚的に確認できる必要はない）。
+// 過去めくり画面（E3-02〜04）：ヘッダー右上の専用帯（#history-strip、
+// ハンバーガーメニューと対称の位置、ユーザー指示）にある「◀」ボタンから、
+// 常時フルスクリーンの過去キャンバス（読み取り専用・ドラッグ元、
+// ArchiveCanvas）へ切り替わる。本日のキャンバス（canvasView）は
+// 表示中ただ隠すだけで、DOM上の場所を動かしたりズーム・パンを退避/固定/復元
+// したりする必要は無い——ドロップ先は本日のキャンバスの実物ではなく、
+// ドラッグ中だけ画面右端にスライドインする単純な矩形のドロップ帯（ユーザー
+// 指示：本日の内容を事前に視覚的に確認できる必要はない）。
 //
 // 「今日→前の日→さらに前の日」と1日ずつ辿るだけの一方向ナビゲーション
 // （一覧・カレンダー・検索は持たない）。historyOffsetは0=過去めくり画面では
@@ -188,9 +169,13 @@ new SettingsMenu(
 // 戻った結果そうなるだけ。1日前の状態で右タブを押すと今日に移動し、その
 // 結果として通常表示に戻る——「閉じる」という特別な動作ではなく、1日進んだ
 // 結果そうなるだけ。右タブは今日を見ている間（historyOffset===0）は
-// disabled（これ以上進めないため）。左右とも常時同じ場所に表示し続ける
-// （過去めくり画面中だけ出現する、といった出し分けは行わない）。上部の
-// .history-navには現在地を示す日付ラベルだけが残る（操作ボタンではない）。
+// disabled（これ以上進めないため）。
+//
+// 帯（#history-strip）自体はキャンバスの外＝ヘッダーに置く固定要素のため、
+// 画面幅に関わらずキャンバスへの重なりが無く、キャンバス自体は常に画面幅
+// いっぱいまで広げられる（ユーザー指示）。左右のボタンと中央の日付ラベルは
+// 常時同じ場所に表示し続け、今日は「今日」、それ以外は
+// 「N月N日」を表示する（updateHistoryDateLabel参照）。
 const historyBackTab = document.querySelector<HTMLButtonElement>("#history-back-tab")!;
 const historyForwardTab = document.querySelector<HTMLButtonElement>("#history-forward-tab")!;
 const historyView = document.querySelector<HTMLDivElement>("#history-view")!;
@@ -239,12 +224,20 @@ function formatHistoryDateLabel(dateKey: string): string {
   return `${m}月${d}日`;
 }
 
-/** 表示中の日付（historyOffset）に合わせて、アーカイブ側の内容とラベルを
- *  更新する。ArchiveCanvasインスタンス自体は初回だけ作り、以降は
- *  setMemos()で中身だけ差し替える。 */
+/** 過去めくり帯（#history-strip）の日付ラベルを、現在地（historyOffset）に
+ *  合わせて更新する。今日（0）は「今日」固定表示、それ以外はN日前の日付。
+ *  帯自体は画面幅に関わらず常時表示のため、setHistoryOffsetのたびに（今日
+ *  ⇔過去どちらへの遷移でも）呼ぶ。 */
+function updateHistoryDateLabel(): void {
+  historyDateLabel.textContent =
+    historyOffset === 0 ? "今日" : formatHistoryDateLabel(historyDateKeyForOffset(historyOffset));
+}
+
+/** 表示中の日付（historyOffset）に合わせて、アーカイブ側の内容を更新する。
+ *  ArchiveCanvasインスタンス自体は初回だけ作り、以降はsetMemos()で中身だけ
+ *  差し替える。 */
 function syncHistoryPane(): void {
   const dateKey = historyDateKeyForOffset(historyOffset);
-  historyDateLabel.textContent = formatHistoryDateLabel(dateKey);
   const memos = loadArchive(dateKey);
   if (!archiveCanvas) {
     archiveCanvas = new ArchiveCanvas(archiveCanvasWrap, memos, {
@@ -320,6 +313,7 @@ function setHistoryOffset(newOffset: number): void {
     historyView.hidden = false;
   }
   historyOffset = newOffset;
+  updateHistoryDateLabel();
   if (willOpen) syncHistoryPane();
   if (wasOpen && !willOpen) {
     historyView.hidden = true;
@@ -349,6 +343,7 @@ const initialHistoryOffset = readInitialHistoryStateFromUrl();
 if (initialHistoryOffset !== null) {
   setHistoryOffset(initialHistoryOffset);
 } else {
+  updateHistoryDateLabel();
   syncHistoryForwardTabState();
 }
 

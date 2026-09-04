@@ -5,7 +5,14 @@ import { DEFAULT_FONT_SIZE_STEP, FONT_SIZE_STEPS } from "./textLayout";
 import { PEN_LINE_WIDTH } from "./toolStyle";
 import type { DrawTool } from "./types";
 
-export type ToolbarTool = DrawTool | "eraser" | "text" | "move";
+/** "none"は「道具なし」（選択中の道具をもう一度押して解除した状態、
+ *  ユーザー指示）。ボタンには対応せず、setTool内部でだけ使う——canvasView.ts
+ *  はこの間、描画・消去・移動などキャンバスへの操作を一切受け付けない。 */
+export type ToolbarTool = DrawTool | "eraser" | "text" | "move" | "none";
+/** ボタンとして実際に並ぶ道具（"none"を除いたToolbarTool）。TOOL_ORDERの
+ *  要素をこちらに絞ることで、ICONS[tool]等のインデックスアクセスが
+ *  "none"分のエントリを要求されずに型チェックを通る。 */
+type SelectableTool = Exclude<ToolbarTool, "none">;
 
 export const DEFAULT_INK = "oklch(22% 0.012 55)";
 
@@ -73,14 +80,17 @@ const MARKER_PRESET_INKS: InkPreset[] = [
   { id: "yellow", label: "イエロー", color: "oklch(90% 0.1 95)" },
 ];
 
-/** 鉛筆とペンはほぼ同じ機能（線を描くだけ）だったため1つに統合した（ユーザー指示）。 */
-const TOOL_ORDER: ToolbarTool[] = ["pen", "marker", "text", "move", "eraser"];
+/** 鉛筆とペンはほぼ同じ機能（線を描くだけ）だったため1つに統合した（ユーザー指示）。
+ *  並び順はペン→マーカー→消しゴム→テキスト→選択（ユーザー指示）。「戻る」は
+ *  道具ではなくこの並びの最後に別枠で続く（buildTools参照）。 */
+const TOOL_ORDER: SelectableTool[] = ["pen", "marker", "eraser", "text", "move"];
 const TOOL_LABEL: Record<ToolbarTool, string> = {
   pen: "ペン",
   marker: "マーカー",
   text: "テキスト",
   move: "選択",
   eraser: "消しゴム",
+  none: "道具なし",
 };
 
 /**
@@ -88,29 +98,24 @@ const TOOL_LABEL: Record<ToolbarTool, string> = {
  * フルカラーのインク色選択をまとめて扱う（鉛筆とペンはほぼ同じ機能だったため
  * 1つに統合した——ユーザー指示）。
  *
- * 下部バーは機能ごとに2ブロックへ分けており、このToolbarクラスはその両方を
- * 受け持つ:
- *   - 左（.toolbar-tools）＝「ツール選択ブロック」: 道具アイコンと「戻る」
- *     （issue #90）を同じ1列（.toolbar-pill）に、すべて同じ大きさ
- *     （.toolbar-btn）で並べる。「何をするか」という操作そのものの並びとして、
- *     1つのブロックにまとめている（ユーザー指示：ツールを左に1ブロックと
- *     してまとめたい）。
- *   - 中央（.toolbar-details）＝「ツールの詳細ブロック」: 色・サイズという、
- *     選んだ道具の見た目を決める設定。文字サイズは選べる仕様をやめ常に
- *     DEFAULT_FONT_SIZE_STEP固定にしたため、ここでは扱わない。
- *     ペンの太さも、当初はGoodNotesのようにバーで連続的に選べるようにして
- *     いたが、「メインのターゲット層はPCを使う人で、ペン（マウス操作）で
- *     文字を書くのは難しく太さも都度選ぶ必要が薄いので、固定にして見た目を
- *     スッキリさせたい」というユーザー指示によりPEN_LINE_WIDTH固定にした
- *     （toolStyle.ts参照）ため、ここでも扱わない。
- *     消しゴムの大きさは、当初はペンの太さスライダーと共有していたが、
- *     「GoodNotesのように消しゴムは3段階の大きさから選ぶ形にしたい」という
- *     ユーザー指示を受け、小/中/大の3段階のボタン選択（buildEraserSizeSteps）
- *     に分けた——道具がペンの間は色スワッチだけ、消しゴムの間はこのボタンだけ、
- *     という形で同じ位置に出し分ける。
- * 画面切り替えナビをヘッダー側に移した分フッターの横幅に余裕ができたため、
- * 以前は道具アイコンの上にposition: absoluteで浮かせていた詳細ブロックを
- * 通常のフローに戻し、ブロックを横に並べるだけで1行に収まるようにしている。
+ * 見た目は下部に2枚の独立した浮いたカードとして分かれる（このToolbarクラスが
+ * 両方を受け持つ、ユーザー指示：統合パネルではなくそれぞれ独立した見た目に
+ * したい）:
+ *   - 追従カード（colorSwatchContainer、#panel-swatch-slot）＝道具固有の
+ *     詳細設定を、今選んでいる道具アイコンの真上に水平方向だけ追従させて
+ *     表示する（ユーザー指示）。中身は道具によって出し分ける：
+ *     ペン・マーカー・テキストの間はインクの色（固定3色＋「好きな色」の
+ *     4スワッチ、buildSwatch）、消しゴムの間は大きさ（小/中/大、
+ *     buildEraserSizeSteps）——どちらも同じカードの中で.hiddenを切り替えて
+ *     排他的に表示する（syncFollowerCard参照）。選択（移動）の間はカード
+ *     ごと非表示。カード自体（角丸・枠線・背景・影）は道具バー側と揃え、
+ *     中身だけカード枠を持たない軽いアイコン列にする。
+ *   - 道具バーのカード（.control-panel）内の.toolbar-tools＝「ツール選択
+ *     ブロック」: 道具アイコンと「戻る」（issue #90）を同じ1列
+ *     （.toolbar-pill）に、すべて同じ大きさ（.toolbar-btn）で並べる。
+ *     文字サイズ・ペンの太さは選べる仕様をやめ、それぞれ
+ *     DEFAULT_FONT_SIZE_STEP・PEN_LINE_WIDTH固定にした（ユーザー指示：PC操作
+ *     でのペンは太さを都度選ぶ必要が薄い）ため、ここでは扱わない。
  *
  * DOMは初回に一度だけ組み立て、以降は状態が変わった箇所だけをピンポイントで
  * 更新する（innerHTMLを毎回作り直さない）。
@@ -118,9 +123,12 @@ const TOOL_LABEL: Record<ToolbarTool, string> = {
 export class Toolbar {
   private el: HTMLElement;
   private container: HTMLElement;
+  private colorSwatchContainer: HTMLElement;
   private onChange?: () => void;
   private onUndo?: () => void;
-  private tool: ToolbarTool = "pen";
+  /** 起動直後は道具なし状態にする（ユーザー指示）——開いてすぐ何かが選ばれて
+   *  いるのではなく、ユーザーが最初に道具を選ぶまでキャンバスは待機状態。 */
+  private tool: ToolbarTool = "none";
   /** マーカー以外（ペン・テキスト等）で使う色。消しゴムの大きさが
    *  ツールごとに別々の値を覚えているのと同じ考え方で、マーカーの色
    *  （markerColor）とは独立して覚えておく——マーカーで色を変えても、
@@ -132,13 +140,15 @@ export class Toolbar {
 
   private toolButtons = new Map<ToolbarTool, HTMLButtonElement>();
 
-  /** 消しゴムの大きさ（小/中/大）を選ぶボタン。.toolbar-details内の同じ位置を
-   *  カラースワッチと奪い合う形で、道具が消しゴムの時だけこちらを表示し、
-   *  それ以外（色を使う道具）の間はカラースワッチを表示する
-   *  （buildEraserSizeSteps参照）。 */
+  /** 消しゴムの大きさ（小/中/大）を選ぶボタンの行（buildEraserSizeSteps参照）。
+   *  追従カード（colorSwatchContainer）内で.panel-swatches-row（色スワッチの
+   *  行）と排他的に表示する（syncFollowerCard参照）。 */
   private eraserSizeWrap!: HTMLElement;
   private eraserSizeButtons = new Map<EraserSizeStep, HTMLButtonElement>();
 
+  /** 色スワッチの行（buildSwatch参照）。追従カード内でeraserSizeWrapと
+   *  排他的に表示する。 */
+  private swatchRow!: HTMLElement;
   /** 固定3スワッチのボタン本体。IDでなく位置（0〜2）で持つ——道具が
    *  マーカーかどうかでPEN_PRESET_INKS/MARKER_PRESET_INKSのどちらを表示するか
    *  が変わるため、ボタン自体は使い回し、中身（背景色・ラベル）をsyncSwatchで
@@ -159,14 +169,19 @@ export class Toolbar {
   private customColorPopoverOpen = false;
   private readonly closeCustomColorPopoverRef = () => this.closeCustomColorPopover();
   private hueSlider!: HTMLInputElement;
-  private swatchRow!: HTMLElement;
   /** カスタムスワッチ（4つ目）で一度でも選んだ色。GoodNotes同様、選んだ色は
    *  そのスワッチ自体の色として残り続け、次回はクリックひとつで呼び戻せる。
    *  ペン・マーカーどちらで選んでも共有する1つの値（枠は増やさない）。 */
   private customColor: string | null = null;
 
-  constructor(container: HTMLElement, onChange?: () => void, onUndo?: () => void) {
+  constructor(
+    container: HTMLElement,
+    colorSwatchContainer: HTMLElement,
+    onChange?: () => void,
+    onUndo?: () => void
+  ) {
     this.container = container;
+    this.colorSwatchContainer = colorSwatchContainer;
     this.onChange = onChange;
     this.onUndo = onUndo;
 
@@ -175,8 +190,15 @@ export class Toolbar {
     this.container.appendChild(this.el);
 
     this.buildTools();
-    this.buildDetails();
+    this.buildEraserSizeSteps(this.colorSwatchContainer);
+    this.buildSwatch(this.colorSwatchContainer);
     this.syncAll();
+
+    // 画面幅が変わるとブレークポイントの切り替わり等でツール選択ボタンの
+    // 位置自体がずれるため、追従カードの位置を追い直す（Toolbarはアプリの
+    // 生存期間中1つだけ生成され破棄されないため、リスナーの解除は行わない
+    // ——他のシングルトン的なクラスと同じ扱い）。
+    window.addEventListener("resize", () => this.syncFollowerCard());
   }
 
   getTool(): ToolbarTool {
@@ -230,7 +252,7 @@ export class Toolbar {
 
   private buildTools(): void {
     const tools = document.createElement("div");
-    tools.className = "toolbar-tools control-block";
+    tools.className = "toolbar-tools";
     this.el.appendChild(tools);
 
     const pill = document.createElement("div");
@@ -241,7 +263,9 @@ export class Toolbar {
       btn.className = "toolbar-btn";
       btn.setAttribute("aria-label", TOOL_LABEL[tool]);
       btn.innerHTML = ICONS[tool];
-      btn.addEventListener("click", () => this.setTool(tool));
+      // 選択中の道具をもう一度押すと、道具なし状態へ解除する（ユーザー指示）
+      // ——トグル的な挙動で、押すたびに選ぶ/解除するを繰り返せる。
+      btn.addEventListener("click", () => this.setTool(this.tool === tool ? "none" : tool));
       this.attachToolTooltip(btn, TOOL_LABEL[tool]);
       this.toolButtons.set(tool, btn);
       pill.appendChild(btn);
@@ -291,35 +315,19 @@ export class Toolbar {
     btn.addEventListener("pointerleave", () => setVisible(false));
   }
 
-  // --- 中央ブロック（ツールの詳細ブロック）：色・サイズ -----------------------
-
-  /** モバイル幅では.toolbar-details自身がグリッドの1マス（展開/収納される行）
-   *  になる（style.css参照）。padding/borderをこの要素自身に持たせると、
-   *  グリッド行を高さ0まで畳んでもその分だけ隙間が残ってしまうため
-   *  （padding/borderはoverflow:hiddenで隠せる「中身」に含まれない）、
-   *  見た目（.control-block）は内側のカードに持たせ、この要素自体は
-   *  中身に応じて0まで縮められる素の器にしておく。 */
-  private buildDetails(): void {
-    const details = document.createElement("div");
-    details.className = "toolbar-details";
-    this.el.appendChild(details);
-
-    const card = document.createElement("div");
-    card.className = "toolbar-details-card control-block";
-    details.appendChild(card);
-
-    this.buildEraserSizeSteps(card);
-    this.buildSwatch(card);
-  }
+  // --- 追従カード内・道具固有の数値調整（今は消しゴムの大きさのみ） ---
 
   /** 消しゴムの大きさを小/中/大の3段階のボタンから選ぶ（ユーザー指示：GoodNotes
    *  のように3段階から選ぶ形にしたい——以前はペンと連続スライダーを共有して
    *  いたが、ペンの太さ自体をPEN_LINE_WIDTH固定にしたためスライダーごと
    *  廃止した）。フレーム形状・柄の選択（appearanceSelector.ts）と同じ
    *  .toolbar-pill/.toolbar-btnの見た目を流用し、選択中のボタンだけ塗りつぶしの
-   *  丸が濃く見えるようdata-activeでハイライトする。道具が消しゴムの時だけ
-   *  表示し、それ以外は隠す（syncEraserSizeSteps参照）。 */
-  private buildEraserSizeSteps(details: HTMLElement): void {
+   *  丸が濃く見えるようdata-activeでハイライトする。追従カード（container）に
+   *  直接マウントし、道具が消しゴムの時だけ表示、それ以外は隠す
+   *  （syncFollowerCard参照）——以前は道具バー内の別ブロックに固定表示して
+   *  いたが、色スワッチと同じ追従カードへ統合した（ユーザー指示：消しゴムも
+   *  追従に加えたい）。 */
+  private buildEraserSizeSteps(container: HTMLElement): void {
     this.eraserSizeWrap = document.createElement("div");
     this.eraserSizeWrap.className = "toolbar-pill";
 
@@ -338,11 +346,10 @@ export class Toolbar {
       this.eraserSizeWrap.appendChild(btn);
     }
 
-    details.appendChild(this.eraserSizeWrap);
+    container.appendChild(this.eraserSizeWrap);
   }
 
   private syncEraserSizeSteps(): void {
-    this.eraserSizeWrap.hidden = this.tool !== "eraser";
     for (const [step, btn] of this.eraserSizeButtons) {
       const active = ERASER_SIZE_STEPS[step] === this.eraserRadius;
       btn.dataset.active = String(active);
@@ -357,10 +364,14 @@ export class Toolbar {
    * （マーカーだけ色の三原色、それ以外は黒/赤/青——ユーザー指示：マーカーで
    * 黒はまず使わない）ため、ボタン自体は3つ作って使い回し、背景色・ラベルは
    * syncSwatchで今の道具に合わせて差し替える。
+   * 道具バー（.control-panel）とは別の独立したカード（colorSwatchContainer、
+   * #panel-swatch-slot、style.css .panel-swatches）に常設する（ユーザー指示）。
+   * カード自体の見た目は道具バーと揃え、この行（.panel-swatches-row）自体は
+   * 個別のカード枠を持たせずアイコン・スワッチだけを直接並べる。
    */
-  private buildSwatch(details: HTMLElement): void {
+  private buildSwatch(container: HTMLElement): void {
     const row = document.createElement("div");
-    row.className = "toolbar-swatches";
+    row.className = "toolbar-swatches panel-swatches-row";
     this.swatchRow = row;
 
     for (let i = 0; i < 3; i++) {
@@ -417,7 +428,7 @@ export class Toolbar {
 
     row.appendChild(this.customColorAnchor);
 
-    details.appendChild(row);
+    container.appendChild(row);
   }
 
   private toggleCustomColorPopover(): void {
@@ -448,17 +459,10 @@ export class Toolbar {
   /** 今の道具の固定3色（activePresetInks）をスワッチの背景・ラベルに反映し、
    *  今の色（getColor）と一致するスワッチだけにリングを付けて選択中を示す
    *  （文字列比較でよい——色の値はすべてこのクラス自身が設定するため、ユーザー
-   *  入力の表記ゆれを考慮する必要がない）。
-   *  色を使わない道具（選択・消しゴム）を選んでいる間は、パレット全体を
-   *  無効化する——押しても意味を持たないボタンが常に押せる状態のままなのは
-   *  分かりにくい（issue #68）。
-   *  消しゴムの間はさらに一歩進めて非表示にする——消しゴムの大きさ選択
-   *  （buildEraserSizeSteps）が同じ.toolbar-details内の見た目上の位置を使う
-   *  ため、グレーアウトのまま残すと3段階ボタンの隣に無意味な色パレットが
-   *  居座って見える（ユーザー指摘：消しゴムでは色の固定部分を表示しないでほしい）。 */
+   *  入力の表記ゆれを考慮する必要がない）。色を使わない道具（選択・消しゴム）
+   *  を選んでいる間はこの行ごと非表示になる（syncFollowerCard参照）ため、
+   *  ここでは常に「表示されている＝色を使う道具である」前提で組み立てる。 */
   private syncSwatch(): void {
-    const enabled = this.tool === "pen" || this.tool === "marker" || this.tool === "text";
-    this.swatchRow.hidden = this.tool === "eraser";
     const presets = this.activePresetInks();
     const color = this.getColor();
     let isPresetActive = false;
@@ -466,15 +470,11 @@ export class Toolbar {
       const btn = this.presetButtons[i];
       btn.style.background = preset.color;
       btn.setAttribute("aria-label", `インクの色: ${preset.label}`);
-      btn.disabled = !enabled;
       const active = preset.color === color;
       btn.dataset.active = String(active);
       if (active) isPresetActive = true;
     });
     this.customSwatchBtn.dataset.active = String(!isPresetActive);
-    this.customSwatchBtn.disabled = !enabled;
-    this.hueSlider.disabled = !enabled;
-    if (!enabled) this.closeCustomColorPopover();
     // このスワッチが選択中（＝3色プリセットのどれとも一致しない色を使っている）
     // 間は、必ず今の道具の実際の色（color）をそのまま映す。this.customColorは
     // ペン・マーカーで共有する1つの値のため、片方で選んだ後もう片方の道具に
@@ -487,8 +487,50 @@ export class Toolbar {
     } else if (this.customColor) {
       this.customSwatchBtn.style.background = this.customColor;
     }
-    this.swatchRow.classList.toggle("toolbar-swatches-disabled", !enabled);
     this.syncToolIcons();
+  }
+
+  /** 追従カード（colorSwatchContainer）を、今選んでいる道具アイコンの真上に
+   *  水平方向だけ追従させる（ユーザー指示）。中身は道具ごとに出し分ける
+   *  （色スワッチ⇔消しゴムの大きさ、ユーザー指示：消しゴムも追従に加えたい）。
+   *  どちらも使わない道具（選択）の間はカードごと非表示にする——道具アイコンの
+   *  真上に付いてくる以上、道具固有の設定を持たない道具の上に空・グレーの
+   *  カードが乗っているとかえって紛らわしいため。
+   *  位置合わせはtransform: translateXで行う——レイアウト上の「本来の
+   *  中央位置」（.app-footerのalign-items:centerによる中央寄せ）はそのままに、
+   *  見た目の位置だけをずらす。
+   *  この「本来の中央位置」を、カード自身のgetBoundingClientRect()（＝今の
+   *  transformを含んだ見た目上の位置）からではなく、親の.app-footerの中央
+   *  （footerRect.left + footerRect.width/2）から計算する——カードは
+   *  align-items:centerでfooterの中央に置かれるため、カード自身の transform
+   *  に一切左右されない。以前はカード自身のtransformを一度リセットしてから
+   *  測る方式だったが、transitionが効いたままだとリセット直後の
+   *  getBoundingClientRect()がアニメーション開始直後の「ほぼ直前の値」を
+   *  返してしまい、切り替えるたびに一瞬本来の位置を通り過ぎてから補正が
+   *  入るという見た目のガタつきがあった（ユーザー報告）。footer基準の計算に
+   *  変えたことで、カード自身のtransform状態を一切見ずに済み、この問題ごと
+   *  無くなる。 */
+  private syncFollowerCard(): void {
+    const showsSwatches = this.tool === "pen" || this.tool === "marker" || this.tool === "text";
+    const showsEraserSizes = this.tool === "eraser";
+    this.swatchRow.hidden = !showsSwatches;
+    this.eraserSizeWrap.hidden = !showsEraserSizes;
+    if (!showsSwatches) this.closeCustomColorPopover();
+
+    if (!showsSwatches && !showsEraserSizes) {
+      this.colorSwatchContainer.hidden = true;
+      return;
+    }
+    this.colorSwatchContainer.hidden = false;
+
+    const btn = this.toolButtons.get(this.tool);
+    const footer = this.colorSwatchContainer.closest(".app-footer");
+    if (!btn || !(footer instanceof HTMLElement)) return;
+    const footerRect = footer.getBoundingClientRect();
+    const btnRect = btn.getBoundingClientRect();
+    const naturalCenterX = footerRect.left + footerRect.width / 2;
+    const offset = btnRect.left + btnRect.width / 2 - naturalCenterX;
+    this.colorSwatchContainer.style.transform = `translateX(${offset}px)`;
   }
 
   /** ペン・マーカーそれぞれの道具ボタン自身のペン先（ICONS.pen/markerの
@@ -507,5 +549,6 @@ export class Toolbar {
     this.syncPill();
     this.syncEraserSizeSteps();
     this.syncSwatch();
+    this.syncFollowerCard();
   }
 }

@@ -66,7 +66,7 @@
   --duration-base: 180ms;
 
   /* 影は「近距離の締まった影＋遠距離のぼんやりした影」の2枚重ねを、カード系
-     （control-block等）とポップオーバー系（テンプレート選択のシート等）の
+     （control-panel等）とポップオーバー系（テンプレート選択のシート等）の
      2段階で共有している。 */
   --shadow-card: 0 1px 2px var(--ink-08), 0 4px 14px var(--ink-06);
   --shadow-popover: 0 2px 6px var(--ink-08), 0 18px 48px var(--ink-12);
@@ -301,8 +301,8 @@ body {
   padding-top: calc(12px + env(safe-area-inset-top, 0px));
   /* 中身（ワードマーク・ナビ文字・アカウントボタン）はどれも背景を持たない
      プレーンな要素で、下に敷く色を近似しても色浮きが起きていた
-     （ユーザー指摘）。ツールバー側の各ブロック（.control-block）が個別に
-     不透明な背景を持っているのと同じ発想で、背景・ぼかし自体を持たせず、
+     （ユーザー指摘）。下部の操作パネル（.control-panel）が不透明な背景を
+     持っているのと同じ発想で、背景・ぼかし自体を持たせず、
      下のキャンバスをそのまま透かす（ユーザー指示）。ズーム中はopacity 0.4の
      減光で目立たなくなる。 */
   transition: opacity 180ms ease;
@@ -312,6 +312,16 @@ body {
   display: flex;
   align-items: center;
   gap: var(--space-5);
+}
+
+/* --- 過去めくりの「前の日」「次の日」＋日付ラベルの帯（#history-strip）の器。
+   左上のハンバーガーメニュー（.app-header-left）と対称の位置に常設する
+   （ユーザー指示）。.app-headerが既にjustify-content:space-betweenのため、
+   左右にこの2つを置くだけで自然に両端へ振り分けられる——画面幅による配置の
+   出し分けは持たない。 --- */
+.app-header-right {
+  display: flex;
+  align-items: center;
 }
 
 /* --- アプリのワードマーク「円相」。禅の書画で一筆で描く円のことで、
@@ -382,16 +392,9 @@ body {
   display: contents;
 }
 
-/* --- スマホ幅で色/消しゴムサイズを一行展開するためのハンドルと器。
-   デスクトップ幅ではどちらも見た目に影響しないようにしておく（ユーザー
-   指示：常時展開のままでよい）——ハンドルは非表示、器は#primary-slotと
-   同じdisplay:contentsで自分自身の箱を持たず、#primary-slotがこれまで
-   通り.control-panelの直接の子として振る舞う。実際にグリッドの器として
-   働くのは@media (max-width: 480px)の中だけ（controlPanelDrawer.ts参照）。 --- */
-.control-panel-handle {
-  display: none;
-}
-
+/* --- #primary-slotと同じdisplay:contentsで自分自身の箱を持たず、
+   #primary-slot（＝.toolbar）がこれまで通り.control-panelの直接の子として
+   振る舞う器。 --- */
 .control-panel-body {
   display: contents;
 }
@@ -421,92 +424,74 @@ body {
   cursor: grabbing;
 }
 
-/* --- 過去めくり画面の「前の日」「次の日」タブ（main.ts #history-back-tab/
-   #history-forward-tab）。画面中央左・中央右に左右対称でposition:fixed
-   固定表示する——.app-header/.app-footerと違い画面上端・下端の帯ではなく、
-   常時同じ場所（垂直方向の中央）に留まる独立した丸ボタンのため、
-   z-indexもヘッダー(11)・フッター(10)と重ならない近い値にして、
-   帯の下に隠れたり帯の上を覆ったりしないようにする。 --- */
-.history-edge-tab {
-  position: fixed;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 12;
+/* --- 過去めくりの「前の日」「次の日」＋日付ラベルの帯（main.ts
+   #history-strip）。ヘッダー右上（.app-header-right、ハンバーガーメニューと
+   対称の位置、ユーザー指示）に常設する——キャンバスやツールバーには一切
+   重ならず、矢印のための余白を確保する必要も無いため、キャンバス・下部
+   パネルとも画面幅を最大限使える。画面幅による配置の出し分けは持たない。
+   比較対象は単一アイコンのハンバーガーメニューではなく、下部の色スワッチ
+   （枠・背景を持たず円が並んでいるだけ）の方が適切（ユーザー指摘）——
+   「◀」「今日」「▶」の3要素も、それぞれが独立してヘッダーに直接置かれて
+   いるだけに見えるよう、gapは.panel-swatches-rowと同じ値に揃える。 --- */
+.history-strip {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* ボタン自体も、丸い当たり判定やホバー時の背景円といった「ボタンらしい
+   チェーム」を持たせると、矢印⇔ラベル⇔矢印という左右対称の並びと相まって
+   1つのステッパー風コントロールに見えてしまう（ユーザー指摘）。当たり判定を
+   色スワッチ（1.625rem）に近い大きさまで絞り、背景・角丸を一切持たせず、
+   ホバー時の反応も背景ではなく文字色の変化だけにする——グリフそのものが
+   独立した小さなアイコンとして置かれているだけに見えるようにする。 */
+.history-strip-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 2.75rem;
-  height: 2.75rem;
+  flex: none;
+  width: 1.625rem;
+  height: 1.625rem;
   padding: 0;
   border: none;
-  border-radius: var(--radius-full);
-  background: var(--paper-2);
-  box-shadow: var(--shadow-card);
+  background: none;
   color: var(--ink-70);
-  font-size: var(--text-lg);
+  font-size: var(--text-sm);
   line-height: 1;
   cursor: pointer;
-  transition: background-color var(--duration-fast) ease, opacity var(--duration-fast) ease;
+  transition: color var(--duration-fast) ease, opacity var(--duration-fast) ease;
 }
 
-.history-edge-tab:hover {
-  background: var(--paper-3);
-}
-
-.history-edge-tab-left {
-  left: calc(var(--space-4) + env(safe-area-inset-left, 0px));
-}
-
-.history-edge-tab-right {
-  right: calc(var(--space-4) + env(safe-area-inset-right, 0px));
+.history-strip-btn:hover {
+  color: var(--ink-solid);
 }
 
 /* 「進む」は今日を見ている間（historyOffset===0）はこれ以上進めないため
    disabled——グレーアウトして操作不可であることを見た目でも伝える。 */
-.history-edge-tab:disabled {
+.history-strip-btn:disabled {
   opacity: 0.35;
   cursor: default;
   pointer-events: none;
 }
 
+/* 日付ラベルも、周りに箱を持たない素のテキストとして置く。アイコンのみの
+   ハンバーガーメニューと並んだ時に主張しすぎないよう、小さめのフォント・
+   控えめな色にする（ユーザー指摘）。固定幅は持たせない——それ自体が
+   見えない「枠」として働き、3要素をまとめて見せる一因になるため。 */
+.history-strip-label {
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--ink-55);
+}
+
 /* --- 過去めくり画面本体（main.ts #history-view）。#canvas-panelと同じ
-   考え方でflex:1いっぱいに広げる。#archive-canvas-wrapを唯一のflex子要素
-   にし、.history-nav（日付ラベル）はposition:absoluteのオーバーレイとして
-   flexの並びから外す——#canvas-info-row（残り時間ピル）が#canvas-wrapの
-   フレックス計算に影響を与えないのと同じ考え方。もし.history-navをflexの
-   並びに含めてしまうと、その分だけ#archive-canvas-wrapの高さが#canvas-wrap
-   より狭くなり、canvasSizing.tsが同じロジックで計算しても通常表示より
-   小さいキャンバスになってしまう（実測で確認したレイアウト崩れ）。 --- */
+   考え方でflex:1いっぱいに広げる——日付ラベルは#history-strip（ヘッダー側）
+   へ移り、この中は#archive-canvas-wrapだけの単純なflexコンテナになった。 --- */
 .history-view {
-  position: relative;
   flex: 1 1 auto;
   min-height: 0;
   width: 100%;
   display: flex;
-}
-
-/* 上部の帯（.app-header、position:fixed）の真下に来る位置なので、実測した
-   ヘッダーの高さ（--app-header-height、main.tsがResizeObserverで追従）ぶん
-   だけ下げる——.app-headerはpointer-eventsを持つ透明な帯のため、それより
-   上に置くとタップを奪われてしまう。ラベル1つだけで操作を持たないため
-   pointer-eventsは持たせず、下のアーカイブキャンバスへのドラッグ操作を
-   妨げないようにする。 */
-.history-nav {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 1;
-  padding-top: calc(var(--app-header-height, 60px) + var(--space-2));
-  padding-bottom: var(--space-2);
-  text-align: center;
-  pointer-events: none;
-}
-
-.history-date-label {
-  font-size: var(--text-md);
-  font-weight: 500;
-  color: var(--ink-70);
 }
 
 .archive-canvas-wrap {
@@ -552,7 +537,7 @@ body {
    canvasView.ts openTextEditor参照）専用の見た目。上のコメントの通り通常は
    「紙に直接書き込んでいる」ことを示すためテーマに関わらず紙色固定にして
    いるが、この分岐では入力欄がキャンバスから切り離された画面下部固定のUI
-   部品になる（もはや紙の上ではない）ため、逆にツールバーの.control-block
+   部品になる（もはや紙の上ではない）ため、逆に下部操作パネル（.control-panel）
    と同じ、テーマに追従するカード風の見た目に切り替えて「これはキャンバスの
    一部ではない」ことを見た目からも伝える（ユーザー指示）。 */
 .text-editor-overlay--fixed-bottom {
@@ -608,7 +593,17 @@ body {
 
 /* --- .app-headerと同じ理由でposition:fixedの半透明+ぼかしの帯にし、画面の
    真の下端に張り付ける（ユーザー指示）。左右の余白は以前#appが持っていた分を
-   ここに移した。 --- */
+   ここに移した。色スワッチ（.panel-swatches）とツールバー（.control-panel）は
+   別々の浮いたカードとして独立させた（ユーザー指示：統合をやめてそれぞれ
+   独立した見た目に戻したい）ため、column方向で縦に積み、gapで「別のカード」
+   だと分かる程度の隙間を空ける。
+   このgapは、指でタップした時に2枚のカードのボタンを同時に触れてしまわない
+   ための実用上の安全マージンでもあったため一度var(--space-6)(24px)まで
+   広げたが、今度は逆に広すぎるとの指摘を受け、その半分程度のvar(--space-3)
+   (12px)まで戻した（ユーザー指示）。
+   下端の余白は、パネルが画面の一番下に近すぎる（ユーザー指摘）という指摘を
+   受けて広めに取り、その分パネル全体を持ち上げる——ホームインジケーターの
+   あるiPhone等ではenv(safe-area-inset-bottom)も加算する。 */
 .app-footer {
   position: fixed;
   bottom: 0;
@@ -620,14 +615,14 @@ body {
      発動してしまう）。 */
   touch-action: pan-x pan-y;
   display: flex;
-  justify-content: center;
-  /* 下端の余白が窮屈だった（ユーザー指摘）ため、他の3辺(8px)より広めに取る
-   *  ——個人キャンバス・共有ビュー共通の単一の.app-footerなので、両方に
-   *  自然に反映される。 */
-  padding: 8px 16px calc(var(--space-5) + env(safe-area-inset-bottom, 0px));
-  /* .app-footer自体は背景を持たない——中身の3ブロック（.control-block）が
-     それぞれ個別に不透明な背景（var(--paper-1)）を持っているため、コンテナ
-     側で重ねて背景を敷くと色浮きするだけで意味が無かった（ユーザー指摘）。 */
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 8px 16px calc(2rem + env(safe-area-inset-bottom, 0px));
+  /* .app-footer自体は背景を持たない——中身の2枚のカード（.panel-swatches／
+     .control-panel）がそれぞれ不透明な背景（var(--paper-1)）を持っている
+     ため、コンテナ側で重ねて背景を敷くと色浮きするだけで意味が無かった
+     （ユーザー指摘）。 */
   transition: opacity 180ms ease;
 }
 
@@ -654,48 +649,94 @@ body {
   pointer-events: none;
 }
 
-/* --- 下部の操作パネル。ツール選択・ツールの詳細・時間選択という機能ごとの
-   3ブロックを横並びに置くための、レイアウトだけのコンテナ。ブロックそれぞれが
-   .control-block（枠線＋背景付き）として見た目を持つため、それらをまとめて包む
-   カード自体の角丸・影は持たせていない（ユーザー指示：3ブロックをまとめる
-   ブロックは別にいらない）。画面切り替え（キャンバス／振り返り／共有）はここでは
-   なくヘッダー側に置いてあり、この帯は「選んだ画面の中でのツール操作」だけを扱う。
-   flex-wrapは使わず、常に1行のまま——中身（文字サイズのステッパー等）を状況に
-   応じて出し入れすると横幅が変わって2行に折り返ってしまうことがあったため、
-   道具バー側は最初から全部出しておくことで横幅を固定し、2行になることが
-   絶対にないようにしている（ユーザー指示）。
-   縦幅の一定化自体は.control-block側のmin-heightが担っている（3ブロックとも
-   同じ高さになるので、画面によって中身が変わってもパネル自体の高さは自然に
-   揃う）——以前はJSで高さの変化をアニメーションでつないでいたが、縦幅そのものを
-   常に一定にしたことで、その場しのぎのアニメーションは不要になった
-   （ユーザー指示：振り返り表示時の縦幅を他の画面にも適用する）。ここのmin-heightは
-   ブロックが1つも無い状態でもパネルが潰れないための保険。 --- */
-
+/* --- 下部のツールバー。色スワッチ（.panel-swatches）とは別の、独立した
+   浮いたカード（角丸・枠線・背景・影を自分自身で持つ）にする——一時期
+   両者を1枚の連続パネルにまとめていたが、それぞれ独立した見た目に戻す
+   （ユーザー指示）。画面切り替え（キャンバス／振り返り／共有）はここでは
+   なくヘッダー側に置いてあり、この帯は「選んだ画面の中でのツール操作」だけを
+   扱う。 --- */
 .control-panel {
-  width: 100%;
-  max-width: min(56.25rem, 96vw);
-  min-height: 4.5rem;
+  /* デスクトップでは色スワッチのカードと同じく中身にフィットする幅にする
+     （ユーザー指示：画面いっぱいに広げず必要十分な幅に留めたい）——消しゴム
+     選択時に詳細ブロックが増える等、中身が変わるたびに幅も自然に追従する。
+     max-widthは中身が万一広がりすぎた場合の安全弁（狭いデスクトップ幅で
+     はみ出さないため）。モバイル幅（@media max-width:480px）ではタップ領域
+     確保を優先し、この既定を上書きして幅広の帯に戻す（ユーザー指示）。 */
+  width: fit-content;
+  max-width: 96vw;
   display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  justify-content: center;
-  column-gap: var(--space-5);
+  flex-direction: column;
+  align-items: stretch;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--ink-12);
+  background: var(--paper-1);
+  box-shadow: var(--shadow-card);
 }
 
-/* --- 道具バー：ツール選択ブロック（左）とツールの詳細ブロック（中央）に分けている。
-   .toolbar-tools（左）＝道具アイコンとテンプレートを1列（.toolbar-pill）にまとめ、
-   すべて同じ大きさ（.toolbar-btn）で揃えたもの。「何をするか」という操作の並びを
-   1ブロックにしている（ユーザー指示）。.toolbar-details（中央）＝色・文字サイズ
-   という選んだ道具の"詳細"設定。以前は道具アイコンの上にposition: absoluteで
-   浮かせていた詳細ブロックを通常のフローに戻し、ブロックを横に並べるだけで1行に収まる。
-   3ブロックとも.control-block（枠線付きの区画）を併用し、構造だけでなく見た目でも
-   はっきり3つに分かれているのが分かるようにしている（ユーザー指示）。 --- */
+/* --- インクの色スワッチ（toolbar.ts buildSwatch、#panel-swatch-slot）。
+   ツールバー（.control-panel）とは別の、独立した浮いたカードにする
+   （ユーザー指示）——見た目はツールバーの外枠（角丸・枠線・背景・影）と
+   揃え、中身だけカード枠を持たない軽いアイコン列（.panel-swatches-row）に
+   する。幅はツールバーに合わせて伸ばさず、中身にフィットさせて独立した
+   小さなカードに見えるようにする。
+   レイアウト上は常に.app-footerの中央（align-items:center）に置いたまま、
+   今選んでいる道具アイコンの真上へはtransform: translateX（toolbar.ts
+   syncSwatchPosition）で見た目の位置だけをずらす——ユーザー指示：道具を
+   切り替えるたびに、その道具アイコンの真上に追従させたい。transitionは
+   その移動を滑らかにするための演出（必須ではないが自然に見える、ユーザー
+   指示）。 --- */
+.panel-swatches {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  padding: 0.625rem var(--space-4);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--ink-12);
+  background: var(--paper-1);
+  box-shadow: var(--shadow-card);
+  transition: transform var(--duration-base) ease;
+}
+
+.panel-swatches-row {
+  gap: 0.5rem;
+}
+
+/* --- 追従カード内の消しゴムサイズボタン（toolbar.ts buildEraserSizeSteps、
+   .toolbar-pill/.toolbar-btnを流用）は、道具バー本体の.toolbar-btn（2.375rem）
+   ではなく、同じカードに並ぶ色スワッチ（.toolbar-swatch）と大きさを揃える
+   （ユーザー指示：消しゴムのサイズとカラーバーのサイズを合わせたい——カラーの
+   方に合わせる）。.panel-swatches配下だけに絞ることで、道具バー本体の
+   アイコンサイズには影響しない。 --- */
+.panel-swatches .toolbar-btn {
+  width: 2rem;
+  height: 2rem;
+}
+
+.panel-swatches .toolbar-pill {
+  gap: 0.5rem;
+}
+
+.panel-swatches .toolbar-btn svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+/* --- 道具バー：道具アイコンを1列（.toolbar-pill）に、すべて同じ大きさ
+   （.toolbar-btn）で揃えたもの（.toolbar-tools）。消しゴムの大きさ等
+   道具固有の詳細設定は、道具バーの中ではなく別カード（追従カード、
+   #panel-swatch-slot、toolbar.ts syncFollowerCard参照）に移した。カード自体
+   （枠線・背景・影）は.control-panel（外周）が持つため、ここでは透明な素の
+   レイアウトだけを持たせる。 --- */
 .toolbar {
   display: flex;
   align-items: center;
   justify-content: center;
   flex-wrap: nowrap;
   gap: var(--space-5);
+  /* 縦方向のpaddingをvar(--space-2)(8px)から広げ、タップ領域に余裕を持たせる
+     （ユーザー指示）。横方向は据え置き。 */
+  padding: 1rem var(--space-4);
 }
 
 .toolbar-tools {
@@ -724,77 +765,24 @@ body {
   height: 2.5rem;
 }
 
-/* --- 中央ブロック：色スウォッチ・文字サイズ。実際の見た目（.control-block）と
-   横並びレイアウトは内側の.toolbar-details-cardが持つ（toolbar.ts参照）——
-   .toolbar-details自身はモバイル幅でグリッドの1マスとして0まで縮む素の器。 --- */
-.toolbar-details {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.toolbar-details-card {
-  /* 幅を中身任せにすると、消しゴムの大きさボタン(3個)と色スウォッチ(4個)を
-     行き来するたびに（大きさが微妙に違うせいで）ブロックの横幅がガタガタ
-     動いてしまう（ユーザー指摘）。固定幅にすることで、道具によらず幅が
-     変わらないようにする（ユーザー指示）。固定pxだと画面幅が違う端末ごとに
-     見え方がまちまちになる（ユーザー指摘）ため、他の余白と同じく
-     clamp(最小, 画面幅に連動する値, 最大)にする——最小・最大とも両方の中身
-     （スウォッチ4個・消しゴムボタン3個）のうち最大のものが余裕をもって
-     収まる範囲。 */
-  width: clamp(150px, 15vw, 200px);
-  justify-content: center;
-  display: flex;
-  align-items: center;
-  gap: 0.875rem;
-  white-space: nowrap;
-}
-
-/* --- 下部バーのブロック（ツール選択／ツールの詳細）に共通の、背景・枠線付きの
-   区画。ブロック同士の間隔だけでは「まとまり」が伝わりにくかったため、構造上の
-   ブロック分けを見た目にもそのまま出るようにしている（ユーザー指示：視覚的にも
-   分かれているのが分かるようにしたい／各ブロックに背景色をつけてほしい）。
-   背景色は、以前この複数ブロックをまとめて1枚のカードにしていたときの色と
-   影をそのまま個々のブロックに持たせたもの——道具選択中のハイライト
-   （.toolbar-btnのdata-active時の背景、こちらの方が少し濃い）とは明度差が
-   あるので、選択状態はブロックの背景の上でもちゃんと見分けがつく。
-   min-heightではなくheightを固定値にしているのは、min-heightだと中身が
-   それを上回るブロックだけ実際にはさらに高くなってしまい、ブロックごとに
-   高さが揃わなかったため（ユーザー指示：すべてのブロックの縦幅を同じにしたい）。
-   ツール選択ブロックのように中身がこれより低いブロックは、
-   align-items/justify-content:centerで中身を上下中央に収める。 --- */
-.control-block {
-  padding: var(--space-2) var(--space-4);
-  height: 4.5rem;
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--ink-12);
-  background: var(--paper-1);
-  box-shadow: var(--shadow-card);
-}
-
-/* --- スマホ幅では、ツール選択とツールの詳細（色/消しゴムサイズ）が1行に
-   収まらない（ユーザー報告）。道具選択（.toolbar-tools）を常時表示に固定し、
-   その上の専用ハンドル（.control-panel-handle、controlPanelDrawer.ts）を
-   タップ/上下ドラッグした時だけ、色/消しゴムサイズ（.toolbar-details）を
-   一行展開する構成にした（ユーザー指示）。
-   行の並びは上から「ハンドル／道具選択（常時表示）／展開行」の順——ハンドルを
-   上へドラッグすると道具選択ごと上へ押し上げられ、その下（画面下端側）から
-   展開行が現れるようにする（ユーザー指示：つまみを上にスワイプすると元の
-   ツールバーが上に上がって、その下から要素が出てくるように見せたい）。
-   展開行は.control-panel-bodyのgrid-template-rowsを0fr⇔1frでアニメーション
-   させることで高さ0⇔auto相当の開閉にしている（他の行は`auto`のままなので、
-   フレキシブルな1トラックだけがコンテンツの最大内容サイズへ向けて補間される）。
-   この構成は.app-footer（position:fixedで画面下端に張り付く帯）自体の高さを
-   開閉に応じて変える——以前は「フッターの縦幅は画面によらず常に一定」という
-   前提があり（.control-block参照）、.info-row側がその一定の高さを見込んだ
-   決め打ちのbottom値でフッターの裏に隠れないよう浮かせていたが、この前提が
-   崩れるため.info-row側は実測値（--app-footer-height、main.ts）を参照する
-   形に変更した。
+/* --- スマホ幅の下部バー。消しゴムの大きさは道具バーではなく追従カード
+   （#panel-swatch-slot、toolbar.ts syncFollowerCard参照）に表示するため、
+   以前あった「ハンドルをタップ/ドラッグして手動で一行展開する」仕組み
+   （旧controlPanelDrawer.ts）は不要になった——表示・非表示は道具の選択
+   そのものに連動して自動で決まる。道具バー自体は常に.toolbar-tools（道具
+   アイコン）だけの1行のまま。
+   ツールバーのカード（.control-panel）は、デスクトップでは中身にフィット
+   する幅にしているが、モバイルではタップ領域確保を優先し、これまで通り
+   画面幅いっぱいに近い帯に戻す（ユーザー指示）——色スワッチのカード
+   （.panel-swatches）はモバイルでも中身にフィットしたコンパクトな幅の
+   ままで構わない。
    余白・間隔は、機種ごとの画面幅の違いに応じて実際に伸び縮みするよう、
    固定pxではなくclamp(最小, 画面幅に連動する値, 最大)で指定する
    （ユーザー指摘：pxで揃えるのは可変でない）。 --- */
 @media (max-width: 480px) {
   .control-panel {
+    width: 100%;
+    max-width: 97vw;
     display: flex;
     flex-direction: row;
     align-items: center;
@@ -802,85 +790,29 @@ body {
   }
 
   .control-panel-body {
-    display: grid;
-    grid-template-columns: 1fr;
-    grid-template-rows: auto auto 0fr;
-    column-gap: clamp(6px, 2.5vw, 10px);
-    row-gap: clamp(4px, 1.5vw, 6px);
     flex: 1 1 auto;
     min-width: 0;
-    transition: grid-template-rows 0.22s ease;
   }
 
-  .control-panel-body[data-expanded="true"] {
-    grid-template-rows: auto auto 1fr;
-  }
-
+  /* ツールバーのカード幅いっぱいに広げないと、justify-content:centerで
+     道具アイコンが幅広の帯の中央に来ない（左寄りに詰まって見える）ため。 */
   .toolbar {
-    display: contents;
-  }
-
-  .toolbar-details {
-    /* 展開行が0frの間、中身をはみ出させず高さ0まで詰められるようにする
-       （grid itemの自動最小サイズはoverflow:hiddenで初めて0になる）。
-       display:flex;align-items:centerで中身を縦方向中央に置くのは見た目の
-       整えだけでなく、開閉アニメーションの見え方も揃えるため——中央寄せなら
-       行の高さが伸びるにつれ中身がちょうど中心から現れる。 */
-    grid-row: 3;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-    min-height: 0;
-    height: auto;
-  }
-
-  /* デスクトップの固定幅(170px)は、狭い端末幅では逆にグリッドの1マス（1fr）を
-     はみ出しかねないため、モバイルではマスいっぱいに広がる可変幅に戻す。 */
-  .toolbar-details-card {
     width: 100%;
-    gap: clamp(6px, 2.5vw, 10px);
-  }
-
-  .control-panel-handle {
-    grid-row: 1;
-    grid-column: 1 / -1;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    width: 100%;
-    height: 1.125rem;
-    padding: 0;
-    border: none;
-    background: none;
-    touch-action: none;
-    cursor: pointer;
-    /* このボタンは幅いっぱい・背景なしの当たり判定で、見えているのは中央の
-       ::beforeの小さな棒だけ（ユーザー指示：つまみらしい見た目にしたい）。
-       ドラッグでの開閉時はブラウザがパン操作とみなしタップハイライトを
-       出さないが、タップだけで開閉した時は既定のタップハイライトが当たり
-       判定いっぱいの帯として一瞬灰色に光ってしまい、ドラッグの時との見た目の
-       差として違和感があった（ユーザー報告）。ここを常に透明にして、ドラッグ
-       時と同じ見た目に揃える。 */
-    -webkit-tap-highlight-color: transparent;
-  }
-
-  .control-panel-handle::before {
-    content: "";
-    width: 2.25rem;
-    height: 0.25rem;
-    border-radius: var(--radius-full);
-    background: var(--ink-20);
   }
 
   .toolbar-tools {
-    grid-row: 2;
-    grid-column: 1 / -1;
     justify-content: center;
     gap: clamp(8px, 3vw, 12px);
   }
 
-  .control-block {
+  /* ツールバーは縦方向の余白をタップしやすいよう広めに取る（ユーザー指示）。
+     色スワッチのカードは元のまま据え置き——2枚のカードの高さが揃わなく
+     なるが、タップ領域拡大の対象はツールバーだけという指示のため。 */
+  .toolbar {
+    padding: clamp(10px, 3vw, 14px) clamp(8px, 3vw, 12px);
+  }
+
+  .panel-swatches {
     padding: clamp(4px, 1.5vw, 6px) clamp(8px, 3vw, 12px);
   }
 
@@ -903,7 +835,7 @@ body {
 
   .app-footer {
     padding: clamp(4px, 1.5vw, 6px) clamp(8px, 2.5vw, 10px)
-      calc(clamp(2px, 1vw, 4px) + env(safe-area-inset-bottom, 0px));
+      calc(clamp(16px, 4.5vw, 26px) + env(safe-area-inset-bottom, 0px));
   }
 }
 
@@ -911,8 +843,8 @@ body {
    ブロックが横に並びきらないための再配置だが、横持ちスマホは逆に幅は
    十分ある一方で高さが乏しい（100dvh基準の円がヘッダー・フッターの固定高さに
    圧迫される）。ブロックの横並び自体は幅的に成立するため再配置はせず、
-   ヘッダー・フッターそれぞれの縦方向のpadding／.control-blockの固定height／
-   道具ボタンのサイズだけを切り詰め、浮いた分をキャンバスの円（#canvas-panel、
+   ヘッダー・フッターそれぞれの縦方向のpadding／道具バー・色スワッチ段の
+   padding／道具ボタンのサイズだけを切り詰め、浮いた分をキャンバスの円（#canvas-panel、
    flex:1で残り高さを取る）に還元する。max-height:500pxはiPad横持ち(768px)や
    デスクトップより十分低く、横持ちスマホ（実機はおよそ375〜430px）だけに
    絞り込むための閾値。 --- */
@@ -922,8 +854,8 @@ body {
     padding-top: calc(4px + env(safe-area-inset-top, 0px));
   }
 
-  .control-block {
-    height: 3.5rem;
+  .toolbar,
+  .panel-swatches {
     padding: 0.25rem var(--space-3);
   }
 
@@ -1061,18 +993,14 @@ body {
   gap: 0.375rem;
 }
 
-/* 選択ツールを選んでいる間は、触れない・薄いことで無効だと分かるように
-   する（issue #68）。消しゴムの間はグレーアウトではなく非表示にする
-   （syncSwatch参照）ため、こちらは使わない。 */
-.toolbar-swatches-disabled {
-  opacity: 0.4;
-  pointer-events: none;
-}
 
 .toolbar-swatch {
   position: relative;
-  width: 1.625rem;
-  height: 1.625rem;
+  /* 1.625rem(26px)だとモバイルでのタップ精度に不安があった（ユーザー指示：
+     検証してほしい）ため、2rem(32px)まで広げた——道具バー本体のアイコン
+     (2.375rem)には及ばないが、タップ精度が明確に改善する範囲。 */
+  width: 2rem;
+  height: 2rem;
   border-radius: 50%;
   border: 2px solid var(--paper-1);
   /* 固定の暗い色(旧oklch(22% 0.012 55 / 0.15))だと、ダークテーマでボタンの
@@ -1118,37 +1046,15 @@ body {
    をやめ、テーマのカラーパレット（settingsMenu.ts）と同じ自前描画の色相
    スライダーを.icon-popoverの中に置いたもの——ネイティブUIはCSSの
    transitionが一切効かず開閉を徐々に見せられなかった（ユーザー指示）ため。
-   位置は既定の.icon-popover（トリガー中心・上向き）のまま——バーの中心が
-   スワッチボタンの真上に来るようにしたい（ユーザー指示）ため、独自の
-   left/right/transformは持たせない。背景は設定メニュー（.settings-popover）
-   と同じ理由で少し透かす（ユーザー指示：85%くらい）。 --- */
+   位置は既定の.icon-popover（トリガー中心・上向き）のまま——トリガー（好きな
+   色スワッチ）は下部パネル上段の中央寄りにあるため、独自のleft/right/
+   transformは持たせない。背景は設定メニュー（.settings-popover）と同じ理由で
+   少し透かす（ユーザー指示：85%くらい）。 --- */
 .toolbar-custom-color-popover {
   min-width: 10rem;
   padding: 0.625rem 0.875rem;
   background: color-mix(in oklch, var(--paper-1) 85%, transparent);
   backdrop-filter: blur(6px);
-}
-
-/* --- モバイル幅では.toolbar-details自身がoverflow:hidden（展開行の折りたたみ
-   アニメーション用、上の.control-panel-body参照）を持つため、既定の
-   .icon-popover（トリガーの上に絶対配置）のままだとその境界でちぎれて見えず・
-   触れなくなってしまう（ユーザー報告：カラーパレットが上のツールバーと
-   重なって操作できない）。position:fixedにして祖先のoverflow/グリッドから
-   完全に外へ出し、フッターのすぐ上に画面中央基準で固定表示する。 --- */
-@media (max-width: 480px) {
-  .toolbar-custom-color-popover.icon-popover {
-    position: fixed;
-    left: 50%;
-    top: auto;
-    right: auto;
-    bottom: calc(var(--app-footer-height, 100px) + 8px);
-    margin: 0;
-    transform: translateX(-50%) translateY(6px);
-  }
-
-  .toolbar-custom-color-popover.icon-popover.is-visible {
-    transform: translateX(-50%) translateY(0);
-  }
 }
 
 /* --- テーマの「好きな色を選ぶ」カラーパレット（settingsMenu.ts、issue #138）。
@@ -1249,7 +1155,7 @@ body {
    文字だけの装飾なしボタン（旧.text-link）だと押せることが伝わりにくかった
    （ユーザー指摘）ため、背景色つきのピル型にする。.icon-popover（背景
    var(--paper-1)）の中に置かれることが多いため、それより一段暗いトーンに
-   して溶けないようにする（.toolbar-btnのdata-active時が.control-blockの
+   して溶けないようにする（.toolbar-btnのdata-active時が.control-panelの
    上で使っているのと同じ組み合わせ）。 --- */
 .pill-btn {
   appearance: none;

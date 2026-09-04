@@ -618,6 +618,11 @@ export class CircularCanvas {
     const p = raw;
 
     const tool = this.getToolState().tool;
+    // 道具なし（選択中の道具をもう一度押して解除した状態、toolbar.ts
+    // setTool参照）の間は、キャンバスへの描画・消去・移動操作を一切
+    // 受け付けない（ユーザー指示）——いずれかの道具を選び直すまでの
+    // 待機状態として扱う。
+    if (tool === "none") return;
     // 新しいジェスチャーの開始（issue #89のundo/redo、undoSnapshotTaken参照）。
     this.undoSnapshotTaken = false;
 
@@ -898,7 +903,7 @@ export class CircularCanvas {
     const el = document.createElement("textarea");
     // モバイル（issue #87：キーボード直上に固定表示する分岐）では、紙の上に
     // 直接書き込んでいるのではなくキャンバスから切り離されたUI部品であることが
-    // 見た目からも伝わるよう、ツールバーの.control-blockと同じカード風の
+    // 見た目からも伝わるよう、下部操作パネル（.control-panel）と同じカード風の
     // スタイルに切り替える（--fixed-bottom、ユーザー指示）。
     const useFixedBottomEditor = isCoarsePointerDevice() && this.fixedBottomTextEditorOnCoarsePointer;
     el.className = useFixedBottomEditor
@@ -1465,7 +1470,9 @@ export class CircularCanvas {
               : "grab"
             : tool === "eraser"
               ? "none"
-              : "crosshair";
+              : tool === "none"
+                ? "default"
+                : "crosshair";
       }
     }
     ctx.save();
