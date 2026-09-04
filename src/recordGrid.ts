@@ -27,12 +27,25 @@ import { listArchivedDateKeys, loadArchive } from "./storage";
  * 実データが無い曜日は、本体キャンバスと同じ罫線入りの紙の上に曜日バッジを
  * 重ねたダミーセルにする。ページ送りは週単位——1ページ目は常に今週で、
  * アーカイブされた最も古い日付が属する週より前へは進めない。
+ *
+ * 窓の外枠自体もタイトル行・グリッド・週の日付範囲表示を含めて正方形にし
+ * （ユーザー指示：本体キャンバスの縮小版のように見せたい）、デスクトップでは
+ * 本体キャンバスとほぼ同じ大きさまで拡大する（style.css .record-grid-sheetの
+ * デスクトップ分岐参照）。モバイルは従来のサイズのまま変更しない。
  */
 
+/** デスクトップ幅の閾値。style.css側の同名メディアクエリ（.record-grid-sheet等の
+ *  正方形レイアウト）と揃える。 */
+const DESKTOP_BREAKPOINT_QUERY = "(min-width: 481px)";
+
 /** サムネイル1マスの一辺（CSSピクセル）。実セル・ダミーセルの両方で共通に使う。
- *  3×3固定でデスクトップ・モバイル共通のレイアウトにしたため（ユーザー指示）、
- *  402px幅程度の画面でも3列が窮屈にならない大きさに抑えてある。 */
-const THUMBNAIL_SIZE_PX = 96;
+ *  窓全体を本体キャンバスに近い大きさまで拡大する指示（ユーザー指示）のため、
+ *  デスクトップだけ大きくする——列数（3×3固定）自体は変えず、1マスの大きさを
+ *  画面幅で切り替える。style.css .record-grid-cellsのgrid-template-columns
+ *  と値を揃えること。 */
+function thumbnailSizePx(): number {
+  return window.matchMedia(DESKTOP_BREAKPOINT_QUERY).matches ? 190 : 96;
+}
 
 /** 日曜(0)始まりの曜日ラベル。 */
 const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
@@ -203,7 +216,7 @@ class RecordGrid {
     const canvas = document.createElement("canvas");
     canvas.className = "record-grid-thumb";
     btn.appendChild(canvas);
-    renderMemoThumbnail(canvas, loadArchive(dateKey), THUMBNAIL_SIZE_PX);
+    renderMemoThumbnail(canvas, loadArchive(dateKey), thumbnailSizePx());
 
     const label = document.createElement("span");
     label.className = "record-grid-cell-label";
@@ -212,6 +225,12 @@ class RecordGrid {
 
     return btn;
   }
+
+  /** デスクトップ／モバイルの閾値をまたぐ形でウィンドウ幅が変わると
+   *  thumbnailSizePx()の結果自体が変わり得るため、開いている間だけ描き直す。 */
+  private onResize = (): void => {
+    this.renderWeek();
+  };
 
   private onKeyDown = (ev: KeyboardEvent): void => {
     ev.stopPropagation();
@@ -236,6 +255,7 @@ class RecordGrid {
     this.lastFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     this.setVisible(true);
     window.addEventListener("keydown", this.onKeyDown, true);
+    window.addEventListener("resize", this.onResize);
     requestAnimationFrame(() => this.sheet.focus());
   }
 
@@ -243,6 +263,7 @@ class RecordGrid {
     if (!this.opened) return;
     this.opened = false;
     window.removeEventListener("keydown", this.onKeyDown, true);
+    window.removeEventListener("resize", this.onResize);
     this.setVisible(false);
     this.lastFocused?.focus();
     this.lastFocused = null;
@@ -268,7 +289,7 @@ function themeColor(varName: string, fallback: string): string {
  */
 function renderDummyThumbnail(canvas: HTMLCanvasElement, weekday: number): void {
   const dpr = Math.max(1, window.devicePixelRatio || 1);
-  const size = THUMBNAIL_SIZE_PX;
+  const size = thumbnailSizePx();
   canvas.width = size * dpr;
   canvas.height = size * dpr;
   canvas.style.width = `${size}px`;

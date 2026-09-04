@@ -1616,6 +1616,7 @@ body {
    いっぱいに広げる指定はやめ、中身にフィットするfit-contentにする
    （件数が変わっても週送りするだけで、器自体は伸び縮みしない）。 */
 .record-grid-sheet {
+  position: relative;
   display: flex;
   flex-direction: column;
   width: fit-content;
@@ -1763,6 +1764,85 @@ body {
   font-size: var(--text-xs);
   font-weight: 500;
   color: var(--ink-55);
+}
+
+/* --- デスクトップだけ、窓全体（タイトル行・グリッド・週の日付範囲）を
+   ひとまとまりの正方形にし、本体キャンバスとほぼ同じ大きさまで拡大する
+   （ユーザー指示：「本体キャンバスの縮小版」に見せたい）。モバイルは
+   従来通りの縦長のカード（幅fit-content・行を縦に積む構成）のまま変える
+   必要が無いため、ここだけ上書きする。このブロックは対応する各セレクタの
+   素のルール（上記）より必ず後ろに置くこと——メディアクエリは詳細度を
+   上げないため、同じプロパティを指定した素のルールの方が後ろにあると
+   カスケードで負けてしまう（実装時に発生した不具合）。
+   タイトル行・週の日付範囲は、グリッドの高さに上乗せする通常の行としてで
+   はなく、外枠の余白（padding）の中にposition:absoluteで浮かせて置く——
+   グリッド自体は3×3で幅=高さの正方形のため、この2つを「高さだけを追加する
+   行」として積まなければ、余白(P)×2＋グリッドの一辺という同じ式で幅も
+   高さも決まり、外枠全体が正方形になる。角丸は本体キャンバス
+   （CANVAS_FRAME_SHAPE、半径＝半辺の30%＝一辺の15%）と揃え、%指定にする
+   ことで正方形の一辺に対して同じ比率になるようにする。 --- */
+@media (min-width: 481px) {
+  /* 1マスが「サムネイル＋日付ラベル」の縦積みのため、セル自体は幅より
+     高さの方が大きくなる（ラベル分の高さが横方向には無い）。グリッドは
+     幅fit-content（.record-grid-sheetの既定）で自然な大きさに収まるため、
+     外枠を正方形にするには、その分だけ左右の余白を上下より広げて帳尻を
+     合わせる——実測（グリッド width 600px / height 662px）から、上下40px・
+     左右71pxで幅・高さとも742pxになることを確認済み。角丸はこの742pxを
+     基準に本体キャンバス（CANVAS_FRAME_SHAPE、半径＝一辺の15%）と揃える。 */
+  .record-grid-sheet {
+    padding: 40px 71px;
+    border-radius: 15%;
+    justify-content: center;
+  }
+
+  /* heightを外枠の上下padding（40px）と同じ値に固定することで、タイトル行の
+     箱自体をこの帯にきっちり収める——中身（ボタンの高さ等）に応じて箱の
+     高さが変わる形にすると、位置決めがtop:0のままでは帯からはみ出してグリッド
+     と重なってしまう（実装時に発生した不具合）。左右のpaddingは.record-grid-sheet
+     と同じ71pxにして、グリッドの左右端と揃える。 */
+  .record-grid-head {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 40px;
+    padding: 0 71px;
+  }
+
+  .record-grid-title {
+    font-size: var(--text-md);
+  }
+
+  .record-grid-close {
+    width: 2rem;
+    height: 2rem;
+    font-size: 1.25rem;
+  }
+
+  .record-grid-cells {
+    grid-template-columns: repeat(3, 190px);
+    gap: 1rem;
+    margin-top: 0;
+  }
+
+  .record-grid-week-range {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0;
+    padding: 0 71px;
+  }
+
+  /* セル自体が96px→190pxへ大きくなった分、日付ラベルも比例して見やすい
+     大きさにする。 */
+  .record-grid-cell-label {
+    font-size: var(--text-xs);
+  }
 }
 
 /* --- 練習用サンドボックス（tutorialSandbox.ts）。本物の#canvas-wrap相当の
