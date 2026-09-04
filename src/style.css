@@ -1782,10 +1782,13 @@ body {
 @media (min-width: 481px) {
   /* セル一辺206px（サムネイル190px＋.record-grid-cellの左右padding16px）×
      3列＋隙間2×16pxでグリッド650px四方（正方形）。上下左右均一のpadding
-     40pxを足して窓全体を730px四方にする。 */
+     40pxを足して窓全体を730px四方にする。角丸は当初CANVAS_FRAME_SHAPEの
+     比率通り15%にしていたが、実際に本体キャンバスと並べると風船のように
+     丸すぎたため（ユーザー指摘）、本体キャンバス側の角丸も含めて一段階
+     シャープにし直した上で、計算式ではなく見た目で7%まで調整している。 */
   .record-grid-sheet {
     padding: 40px;
-    border-radius: 11%;
+    border-radius: 7%;
     justify-content: center;
   }
 

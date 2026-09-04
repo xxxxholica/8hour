@@ -27,10 +27,11 @@ export interface FrameShape {
   clamp(p: Point): Point;
 }
 
-/** 角丸の半径（scale=1を半辺とする正規化単位）。具体的な値の指定はまだ無いため、
- *  見た目として自然な丸みの仮値として採用（バックログE1-02：ネイティブ版の
- *  キャンバス形状「正方形（角丸）」をWeb版にも適用）。 */
-const CANVAS_CORNER_RADIUS_FACTOR = 0.3;
+/** 角丸の半径（scale=1を半辺とする正規化単位）。「過去の記録」ウィンドウ
+ *  （recordGrid.ts、本体キャンバスと丸みを揃えている）と並べて見た目を
+ *  比較した結果、0.3（一辺に対して15%）は両方とも風船のように丸すぎたため
+ *  （ユーザー指摘）、0.2（一辺に対して10%）まで下げて一段階シャープにした。 */
+const CANVAS_CORNER_RADIUS_FACTOR = 0.2;
 
 export const CANVAS_FRAME_SHAPE: FrameShape = {
   buildPath(scale, offset = 0) {
