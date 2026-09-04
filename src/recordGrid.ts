@@ -89,10 +89,10 @@ class RecordGrid {
   private root: HTMLElement;
   private scaleWrap: HTMLElement;
   private sheet: HTMLElement;
+  private titleEl: HTMLElement;
   private grid: HTMLElement;
   private prevWeekBtn: HTMLButtonElement;
   private nextWeekBtn: HTMLButtonElement;
-  private weekRangeLabel: HTMLElement;
   private setVisible: (show: boolean) => void;
   private opened = false;
   private lastFocused: HTMLElement | null = null;
@@ -134,18 +134,22 @@ class RecordGrid {
     this.sheet.tabIndex = -1;
     this.scaleWrap.appendChild(this.sheet);
 
+    // 左上のタイトルは固定文言「過去の記録」ではなく、表示中の週の日付範囲
+    // （例:「10月10日〜10月17日」、renderWeek参照）を表示する——開けば
+    // 自明な固定文言より、以前グリッド下に別途表示していた日付範囲の方が
+    // 価値がある（ユーザー指示）。ダイアログとしてのアクセシブルな名前
+    // （aria-label="過去の記録"、上記）は固定のまま残す。
     const head = document.createElement("header");
     head.className = "record-grid-head";
-    const title = document.createElement("h2");
-    title.className = "record-grid-title";
-    title.textContent = "過去の記録";
+    this.titleEl = document.createElement("h2");
+    this.titleEl.className = "record-grid-title";
     const closeBtn = document.createElement("button");
     closeBtn.type = "button";
     closeBtn.className = "record-grid-close";
     closeBtn.setAttribute("aria-label", "閉じる");
     closeBtn.textContent = "×";
     closeBtn.addEventListener("click", () => this.close());
-    head.append(title, closeBtn);
+    head.append(this.titleEl, closeBtn);
     this.sheet.appendChild(head);
 
     this.grid = document.createElement("div");
@@ -158,13 +162,6 @@ class RecordGrid {
     // 使わずボタン要素そのものをセルにする。
     this.prevWeekBtn = this.buildNavCell("prev", "前の週へ", "◀");
     this.nextWeekBtn = this.buildNavCell("next", "次の週へ", "▶");
-
-    // 以前は「1/2ページ」のようなページ番号をここ（グリッドの下）に表示して
-    // いたが、週固定になったのに合わせ、表示中の週の日付範囲
-    // （例:「10月10日〜10月17日」）に置き換える（ユーザー指示）。
-    this.weekRangeLabel = document.createElement("p");
-    this.weekRangeLabel.className = "record-grid-week-range";
-    this.sheet.appendChild(this.weekRangeLabel);
 
     this.setVisible = createFadeVisibility(this.root);
     document.body.appendChild(this.root);
@@ -214,7 +211,7 @@ class RecordGrid {
     this.grid.appendChild(this.nextWeekBtn);
 
     const saturdayKey = shiftDateKey(displayedSunday, 6);
-    this.weekRangeLabel.textContent = `${formatCellDateLabel(displayedSunday)}〜${formatCellDateLabel(saturdayKey)}`;
+    this.titleEl.textContent = `${formatCellDateLabel(displayedSunday)}〜${formatCellDateLabel(saturdayKey)}`;
 
     // 「前の週へ」は、最も古いarchive日付が属する週にいる（またはそもそも
     // 記録が1件も無い）間は非活性にする（ユーザー指示）。「次の週へ」は
