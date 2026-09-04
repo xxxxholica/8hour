@@ -649,6 +649,19 @@ body {
   pointer-events: none;
 }
 
+/* --- 道具バー（.control-panel）と、記録一覧画面を開く独立トリガー
+   （#record-grid-trigger-slot、.record-grid-trigger-card）を横に並べる行。
+   .app-footer自体はflex-direction:columnのため（色スワッチのカードが上に
+   縦に積まれる）、この2枚を横並びにするための専用のラッパー。gapで明確な
+   余白を空け、トリガー側は独自の背景・角丸・影を持つ別カードにすることで、
+   道具選択ピルとは視覚的にも完全に分離して見えるようにする（ユーザー指示：
+   ツールバーの一部に見えてしまっていたのを直したい）。 --- */
+.footer-tools-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
 /* --- 下部のツールバー。色スワッチ（.panel-swatches）とは別の、独立した
    浮いたカード（角丸・枠線・背景・影を自分自身で持つ）にする——一時期
    両者を1枚の連続パネルにまとめていたが、それぞれ独立した見た目に戻す
@@ -722,6 +735,28 @@ body {
   height: 1rem;
 }
 
+/* --- 記録一覧画面（recordGrid.ts）を開く独立トリガーの器
+   （main.ts #record-grid-trigger-slot、toolbar.ts buildRecordGridTrigger）。
+   .control-panelとは別の、.panel-swatchesと同じ角丸・枠線・背景・影を持つ
+   独立したカードにする（ユーザー指示：道具選択ピルとは完全に別で見える
+   ようにしたい）——中身はボタン1つだけなので、カード自体は中身にフィット
+   させる。 --- */
+.record-grid-trigger-card {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  padding: 0.4375rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--ink-12);
+  background: var(--paper-1);
+  box-shadow: var(--shadow-card);
+}
+
+.record-grid-trigger-btn {
+  flex: none;
+}
+
 /* --- 道具バー：道具アイコンを1列（.toolbar-pill）に、すべて同じ大きさ
    （.toolbar-btn）で揃えたもの（.toolbar-tools）。消しゴムの大きさ等
    道具固有の詳細設定は、道具バーの中ではなく別カード（追従カード、
@@ -749,16 +784,6 @@ body {
   display: flex;
   align-items: center;
   gap: 0.375rem;
-}
-
-/* --- 記録一覧画面（recordGrid.ts）を開く独立トリガー（toolbar.ts
-   buildRecordGridTrigger）。既存の道具選択ボタン群（.toolbar-pill）には
-   加えず、.toolbarの直接の子として並べる——.toolbar自体のgap（.toolbar-tools
-   との間）だけで隙間を空け、道具の切り替えとは別物であることを見た目でも
-   分離する（ユーザー指示）。見た目自体は他の道具ボタンと同じ.toolbar-btnを
-   共有し、選択状態（data-active）だけ持たない。 --- */
-.toolbar-record-grid-btn {
-  flex: none;
 }
 
 /* --- 設定メニューのテーマ選択行だけ、間隔は詰めてボタン自体を大きくする
@@ -790,9 +815,19 @@ body {
    固定pxではなくclamp(最小, 画面幅に連動する値, 最大)で指定する
    （ユーザー指摘：pxで揃えるのは可変でない）。 --- */
 @media (max-width: 480px) {
-  .control-panel {
+  /* record-grid-trigger-card分の幅を差し引いた残りを道具バーに回す——
+     .control-panel自体をwidth:100%のままにすると.footer-tools-row（新設）の
+     幅からトリガーカード分がはみ出してしまうため、flex:1 1 autoで
+     「残りいっぱい」に置き換える（ユーザー指示：トリガーは道具バーとは
+     別カードのまま道具バーの右に並べたい）。 */
+  .footer-tools-row {
     width: 100%;
-    max-width: 97vw;
+  }
+
+  .control-panel {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: none;
     display: flex;
     flex-direction: row;
     align-items: center;
@@ -865,7 +900,8 @@ body {
   }
 
   .toolbar,
-  .panel-swatches {
+  .panel-swatches,
+  .record-grid-trigger-card {
     padding: 0.25rem var(--space-3);
   }
 

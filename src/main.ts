@@ -80,10 +80,13 @@ app.innerHTML = `
   </main>
   <footer class="app-footer">
     <div id="panel-swatch-slot" class="panel-swatches"></div>
-    <div class="control-panel">
-      <div class="control-panel-body">
-        <div id="primary-slot"></div>
+    <div class="footer-tools-row">
+      <div class="control-panel">
+        <div class="control-panel-body">
+          <div id="primary-slot"></div>
+        </div>
       </div>
+      <div id="record-grid-trigger-slot" class="record-grid-trigger-card"></div>
     </div>
   </footer>
 `;
@@ -104,21 +107,25 @@ syncAppFooterHeightVar();
 const canvasWrap = document.querySelector<HTMLDivElement>("#canvas-wrap")!;
 const primarySlot = document.querySelector<HTMLDivElement>("#primary-slot")!;
 const colorSwatchSlot = document.querySelector<HTMLDivElement>("#panel-swatch-slot")!;
+const recordGridTriggerSlot = document.querySelector<HTMLDivElement>("#record-grid-trigger-slot")!;
 
 const onToolChange = () => {
   canvasView.closeWritingSession();
   canvasView.finishTextEditingIfOpen();
 };
-// 記録一覧画面（recordGrid.ts）：道具バーの右側に置いた独立トリガーから開く
-// 全画面グリッド。セルをタップして選ばれた日付は、日付めくり画面
-// （setHistoryOffset、下記で定義）へそのまま渡して開く——グリッド側は索引役に
-// 徹し、閲覧・持ち出しの操作は日付めくり画面に一本化する（ユーザー指示）。
-// setHistoryOffsetは関数宣言（巻き上げられる）のため、実際に呼ばれる時点
-// （ユーザーがセルをタップした後）には定義済みであれば良く、ここで先に
-// 参照しても問題ない。
-const toolbar = new Toolbar(primarySlot, colorSwatchSlot, onToolChange, () => canvasView.undo(), () =>
-  openRecordGrid((dateKey) => setHistoryOffset(daysBetween(dateKey, dateKeyFor(new Date()))))
-);
+// 記録一覧画面（recordGrid.ts）：道具バー（.control-panel）とは別の独立した
+// カード（#record-grid-trigger-slot、.footer-tools-row内の兄弟要素）に置いた
+// トリガーから開く全画面グリッド（ユーザー指示：道具選択ピルとは視覚的にも
+// 完全に別で見えるようにしたい）。セルをタップして選ばれた日付は、日付めくり
+// 画面（setHistoryOffset、下記で定義）へそのまま渡して開く——グリッド側は
+// 索引役に徹し、閲覧・持ち出しの操作は日付めくり画面に一本化する
+// （ユーザー指示）。setHistoryOffsetは関数宣言（巻き上げられる）のため、
+// 実際に呼ばれる時点（ユーザーがセルをタップした後）には定義済みであれば
+// 良く、ここで先に参照しても問題ない。
+const toolbar = new Toolbar(primarySlot, colorSwatchSlot, onToolChange, () => canvasView.undo(), {
+  container: recordGridTriggerSlot,
+  onOpen: () => openRecordGrid((dateKey) => setHistoryOffset(daysBetween(dateKey, dateKeyFor(new Date())))),
+});
 
 const getToolState = () => ({
   tool: toolbar.getTool(),

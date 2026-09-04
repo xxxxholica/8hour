@@ -5,6 +5,16 @@ import { DEFAULT_FONT_SIZE_STEP, FONT_SIZE_STEPS } from "./textLayout";
 import { PEN_LINE_WIDTH } from "./toolStyle";
 import type { DrawTool } from "./types";
 
+/** 記録一覧画面（recordGrid.ts）への独立トリガーの器と、開いた時に呼ぶ
+ *  コールバック。containerは.toolbar（道具選択のピル）とは別の、呼び出し側
+ *  （main.ts）が用意する独立したカード要素——ここに差し込むことで、道具選択
+ *  ボタン群とは背景・角丸を共有しない見た目にする（ユーザー指示：完全に別で
+ *  見えるようにしたい）。 */
+export interface RecordGridTriggerOptions {
+  container: HTMLElement;
+  onOpen: () => void;
+}
+
 /** "none"は「道具なし」（選択中の道具をもう一度押して解除した状態、
  *  ユーザー指示）。ボタンには対応せず、setTool内部でだけ使う——canvasView.ts
  *  はこの間、描画・消去・移動などキャンバスへの操作を一切受け付けない。 */
@@ -138,8 +148,6 @@ export class Toolbar {
   private markerColor: string = MARKER_PRESET_INKS[0].color;
   private eraserRadius: number = ERASER_SIZE_STEPS.medium;
 
-  private onOpenRecordGrid?: () => void;
-
   private toolButtons = new Map<ToolbarTool, HTMLButtonElement>();
 
   /** 消しゴムの大きさ（小/中/大）を選ぶボタンの行（buildEraserSizeSteps参照）。
@@ -181,20 +189,19 @@ export class Toolbar {
     colorSwatchContainer: HTMLElement,
     onChange?: () => void,
     onUndo?: () => void,
-    onOpenRecordGrid?: () => void
+    recordGridTrigger?: RecordGridTriggerOptions
   ) {
     this.container = container;
     this.colorSwatchContainer = colorSwatchContainer;
     this.onChange = onChange;
     this.onUndo = onUndo;
-    this.onOpenRecordGrid = onOpenRecordGrid;
 
     this.el = document.createElement("div");
     this.el.className = "toolbar";
     this.container.appendChild(this.el);
 
     this.buildTools();
-    this.buildRecordGridTrigger();
+    if (recordGridTrigger) this.buildRecordGridTrigger(recordGridTrigger);
     this.buildEraserSizeSteps(this.colorSwatchContainer);
     this.buildSwatch(this.colorSwatchContainer);
     this.syncAll();
@@ -301,20 +308,21 @@ export class Toolbar {
   }
 
   /** 記録一覧画面（recordGrid.ts）を開くトリガー。既存のツール選択ボタン群
-   *  （.toolbar-pill）とは分離した、単独の独立ボタンとして道具バーの右側に
-   *  置く（ユーザー指示：既存の道具の切り替えとは別物として扱いたい）——
-   *  トグルで選択状態を持つ道具ボタンと違い、押すたびに画面を開くだけの
-   *  一過性の操作のため、toolButtonsには含めずaria-pressed等も持たせない。 */
-  private buildRecordGridTrigger(): void {
-    if (!this.onOpenRecordGrid) return;
+   *  （.toolbar-pill、道具バー本体）とは別に、呼び出し側が用意した独立カード
+   *  （options.container、main.tsの#record-grid-trigger-slot）へ差し込む——
+   *  DOM上も見た目上も道具バーとは別物にする（ユーザー指示：完全に別で
+   *  見えるようにしたい）。トグルで選択状態を持つ道具ボタンと違い、押すたびに
+   *  画面を開くだけの一過性の操作のため、toolButtonsには含めずaria-pressed等も
+   *  持たせない。 */
+  private buildRecordGridTrigger(options: RecordGridTriggerOptions): void {
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.className = "toolbar-btn toolbar-record-grid-btn";
+    btn.className = "toolbar-btn record-grid-trigger-btn";
     btn.setAttribute("aria-label", "過去の記録");
     btn.innerHTML = ICONS.recordGrid;
-    btn.addEventListener("click", () => this.onOpenRecordGrid?.());
+    btn.addEventListener("click", () => options.onOpen());
     this.attachToolTooltip(btn, "過去の記録");
-    this.el.appendChild(btn);
+    options.container.appendChild(btn);
   }
 
   /** 道具ボタンにホバー用の小さな案内（ペン／マーカー／テキスト／選択／
