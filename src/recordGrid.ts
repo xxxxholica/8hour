@@ -1,18 +1,19 @@
+import { dateKeyFor, shiftDateKey } from "./dailyReset";
 import { CANVAS_FRAME_SHAPE } from "./frameShape";
 import { createFadeVisibility } from "./fadeVisibility";
 import { renderMemoThumbnail } from "./memoRenderer";
+import { drawRuledPaper } from "./paper";
 import { listArchivedDateKeys, loadArchive } from "./storage";
 
 /**
- * 記録一覧画面：書き込みのあった日（archive:<日付>キーが存在する日）だけを、
- * 日付＋ミニサムネイルのグリッドで一覧表示する専用の全画面オーバーレイ。
+ * 記録一覧画面：書き込みのあった日（archive:<日付>キーが存在する日）を、
+ * 日曜始まりの週固定のグリッドで一覧表示する専用の全画面オーバーレイ。
  *
  * 円相は「一覧・検索UIを持たない」を原則としているが、この画面はその明示的な
- * 例外として扱う（ユーザー指示）。以前は設定メニューの中に縦一覧として実装して
- * いたが、メニューがごちゃついたため撤廃した経緯があり、同じ轍を踏まないよう
- * 設定メニュー・日付めくり画面（main.ts #history-strip/#history-view）とは
- * 完全に独立した全画面オーバーレイにする——骨格・シングルトンで使い回す構成・
- * フォーカスの作法はusageGuide.tsに揃える。
+ * 例外として扱う（ユーザー指示）。設定メニュー・日付めくり画面
+ * （main.ts #history-strip/#history-view）とは完全に独立した全画面
+ * オーバーレイにする——骨格・シングルトンで使い回す構成・フォーカスの作法は
+ * usageGuide.tsに揃える。
  *
  * グリッドは索引役に徹し、実際の閲覧・ドラッグでの持ち出しは既存の日付めくり
  * 画面に一本化する（ユーザー指示）。セルをタップしても、その場でプレビューや
@@ -21,27 +22,20 @@ import { listArchivedDateKeys, loadArchive } from "./storage";
  * 呼び出し側が持つ。
  *
  * 窓（.record-grid-sheet）の大きさ・形は記録の件数に関わらず常に一定にする
- * （ユーザー指示）——1ページあたりのマス数を画面幅で固定（デスクトップ3×3=9、
- * モバイル2×2=4）にし、実データがそのページの枠数に満たない場合は残りを
- * ダミーセル（空状態と同じ、薄い輪郭線だけの角丸正方形）で埋める。枠数を
- * 超える記録は、横方向のページめくり（◀▶、日付めくり帯#history-stripと
- * 近い見た目）で辿る。
+ * （ユーザー指示）——3×3=9マスのグリッドを、デスクトップ・モバイル共通で
+ * 常に「日・月・火・水・木・金・土＋前の週へ＋次の週へ」の9項目で固定に埋める。
+ * 実データが無い曜日は、本体キャンバスと同じ罫線入りの紙の上に曜日バッジを
+ * 重ねたダミーセルにする。ページ送りは週単位——1ページ目は常に今週で、
+ * アーカイブされた最も古い日付が属する週より前へは進めない。
  */
 
-/** サムネイル1マスの一辺（CSSピクセル）。実セル・ダミーセルの両方で共通に使う。 */
-const THUMBNAIL_SIZE_PX = 120;
+/** サムネイル1マスの一辺（CSSピクセル）。実セル・ダミーセルの両方で共通に使う。
+ *  3×3固定でデスクトップ・モバイル共通のレイアウトにしたため（ユーザー指示）、
+ *  402px幅程度の画面でも3列が窮屈にならない大きさに抑えてある。 */
+const THUMBNAIL_SIZE_PX = 96;
 
-/** グリッドの列数・行数を画面幅で切り替える閾値。style.cssの他のモバイル
- *  分岐（@media (max-width: 480px)）と揃える。 */
-const MOBILE_BREAKPOINT_QUERY = "(max-width: 480px)";
-
-/** 1ページあたりの列数・行数。デスクトップ3×3=9マス、モバイル2×2=4マス
- *  （ユーザー指示）——窓の大きさを常に一定にするため、実データの件数に
- *  関わらずこの数だけセル（実セル＋ダミーセル）を毎回描く。 */
-function cellsPerPage(): { cols: number; rows: number } {
-  const isMobile = window.matchMedia(MOBILE_BREAKPOINT_QUERY).matches;
-  return isMobile ? { cols: 2, rows: 2 } : { cols: 3, rows: 3 };
-}
+/** 日曜(0)始まりの曜日ラベル。 */
+const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
 
 let overlay: RecordGrid | null = null;
 
@@ -52,23 +46,37 @@ export function openRecordGrid(onSelectDate: (dateKey: string) => void): void {
   overlay.open(onSelectDate);
 }
 
+/** dateKeyの曜日（0=日曜〜6=土曜、Date.prototype.getDayと同じ）。 */
+function dayOfWeek(dateKey: string): number {
+  const [y, m, d] = dateKey.split("-").map(Number);
+  return new Date(y, m - 1, d).getDay();
+}
+
+/** dateKeyが属する週の日曜日のdateKey。 */
+function sundayOf(dateKey: string): string {
+  return shiftDateKey(dateKey, -dayOfWeek(dateKey));
+}
+
 class RecordGrid {
   private root: HTMLElement;
   private sheet: HTMLElement;
   private grid: HTMLElement;
-  private prevPageBtn: HTMLButtonElement;
-  private nextPageBtn: HTMLButtonElement;
-  private pageLabel: HTMLElement;
+  private prevWeekBtn: HTMLButtonElement;
+  private nextWeekBtn: HTMLButtonElement;
+  private weekRangeLabel: HTMLElement;
   private setVisible: (show: boolean) => void;
   private opened = false;
   private lastFocused: HTMLElement | null = null;
   private onSelectDate: ((dateKey: string) => void) | null = null;
 
-  /** 開いた時点で読み込み、閉じるまで固定する日付一覧（新しい日が先）。
-   *  ページ送りのたびに読み直す必要は無い——ドラッグでの持ち出し等、
+  /** 開いた時点で読み込み、閉じるまで固定するarchive日付の集合（曜日ごとの
+   *  実データ有無の判定に使う）と、最古の日付が属する週の日曜日（「前の週へ」
+   *  の境界）。週送りのたびに読み直す必要は無い——ドラッグでの持ち出し等、
    *  開いている間にアーカイブ自体が増減する操作をこの画面は持たないため。 */
-  private dateKeys: string[] = [];
-  private page = 0;
+  private archivedDateSet = new Set<string>();
+  private oldestWeekSunday: string | null = null;
+  /** 0=今週（1ページ目）、1=先週、2=先々週…。 */
+  private weekIndex = 0;
 
   constructor() {
     this.root = document.createElement("div");
@@ -106,72 +114,76 @@ class RecordGrid {
     this.grid.className = "record-grid-cells";
     this.sheet.appendChild(this.grid);
 
-    // ページめくり（ヘッダー右上の日付めくり帯#history-stripと近い見た目の
-    // ◀ページ数▶）。1ページに収まる件数でも常に表示し続ける——枠数を
-    // 超えたページ数の時だけ活性化する（ユーザー指示：窓の大きさ・形を
-    // 記録の件数に関わらず常に一定にしたいため、要素自体の出し引きはしない）。
-    const pagination = document.createElement("div");
-    pagination.className = "record-grid-pagination";
-    this.prevPageBtn = document.createElement("button");
-    this.prevPageBtn.type = "button";
-    this.prevPageBtn.className = "record-grid-page-btn";
-    this.prevPageBtn.setAttribute("aria-label", "前のページへ");
-    this.prevPageBtn.textContent = "◀";
-    this.prevPageBtn.addEventListener("click", () => {
-      this.page -= 1;
-      this.renderPage();
-    });
-    this.pageLabel = document.createElement("span");
-    this.pageLabel.className = "record-grid-page-label";
-    this.nextPageBtn = document.createElement("button");
-    this.nextPageBtn.type = "button";
-    this.nextPageBtn.className = "record-grid-page-btn";
-    this.nextPageBtn.setAttribute("aria-label", "次のページへ");
-    this.nextPageBtn.textContent = "▶";
-    this.nextPageBtn.addEventListener("click", () => {
-      this.page += 1;
-      this.renderPage();
-    });
-    pagination.append(this.prevPageBtn, this.pageLabel, this.nextPageBtn);
-    this.sheet.appendChild(pagination);
+    // 週送りボタンは、日〜土の7マスと同じグリッドの8・9番目のマスとして
+    // 埋め込む（ユーザー指示）。紙質の実セル・ダミーセルとは見た目で区別する
+    // （style.css .record-grid-nav-cell、黒背景＋白い矢印）ため、canvas描画は
+    // 使わずボタン要素そのものをセルにする。
+    this.prevWeekBtn = this.buildNavCell("prev", "前の週へ", "◀");
+    this.nextWeekBtn = this.buildNavCell("next", "次の週へ", "▶");
+
+    // 以前は「1/2ページ」のようなページ番号をここ（グリッドの下）に表示して
+    // いたが、週固定になったのに合わせ、表示中の週の日付範囲
+    // （例:「10月10日〜10月17日」）に置き換える（ユーザー指示）。
+    this.weekRangeLabel = document.createElement("p");
+    this.weekRangeLabel.className = "record-grid-week-range";
+    this.sheet.appendChild(this.weekRangeLabel);
 
     this.setVisible = createFadeVisibility(this.root);
     document.body.appendChild(this.root);
   }
 
-  /** 開いた瞬間に一度だけ日付一覧を読み込み、1ページ目から描く。並び順は
-   *  新しい日が先（ユーザー指示）——日付キーは"YYYY-MM-DD"形式のため文字列の
-   *  降順でそのまま新しい順になる。 */
-  private refresh(): void {
-    this.dateKeys = listArchivedDateKeys().sort((a, b) => b.localeCompare(a));
-    this.page = 0;
-    this.renderPage();
+  private buildNavCell(direction: "prev" | "next", label: string, glyph: string): HTMLButtonElement {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "record-grid-cell record-grid-nav-cell";
+    btn.setAttribute("aria-label", label);
+    btn.textContent = glyph;
+    btn.addEventListener("click", () => {
+      this.weekIndex += direction === "prev" ? 1 : -1;
+      this.renderWeek();
+    });
+    return btn;
   }
 
-  /** 今のページ（this.page）の中身を描き直す。1ページの枠数
-   *  （cellsPerPage()、画面幅で決まる）ぶん常に同じ数のセルを描き、実データが
-   *  足りない分はダミーセルで埋める——窓の大きさ・形を件数に関わらず一定に
-   *  保つ（ユーザー指示）。画面幅が変わるたびにも呼び直せるよう副作用を
-   *  ここへ閉じ込めてある（window resizeリスナー参照）。 */
-  private renderPage(): void {
-    const { cols, rows } = cellsPerPage();
-    const pageSize = cols * rows;
-    this.grid.style.gridTemplateColumns = `repeat(${cols}, ${THUMBNAIL_SIZE_PX}px)`;
+  /** 開いた瞬間に一度だけarchive日付を読み込み、今週（1ページ目）から描く。 */
+  private refresh(): void {
+    const dateKeys = listArchivedDateKeys();
+    this.archivedDateSet = new Set(dateKeys);
+    const oldestDateKey = dateKeys.length > 0 ? dateKeys.slice().sort()[0] : null;
+    this.oldestWeekSunday = oldestDateKey ? sundayOf(oldestDateKey) : null;
+    this.weekIndex = 0;
+    this.renderWeek();
+  }
 
-    const totalPages = Math.max(1, Math.ceil(this.dateKeys.length / pageSize));
-    this.page = Math.max(0, Math.min(this.page, totalPages - 1));
-    const start = this.page * pageSize;
-    const pageItems = this.dateKeys.slice(start, start + pageSize);
+  /** 今表示している週（this.weekIndex）の中身を描き直す。日〜土の7マス＋
+   *  前週／次週ボタンの計9マスを、件数に関わらず常に同じ構成で描く
+   *  （ユーザー指示：窓の大きさ・形を常に一定にするため）。実データが無い
+   *  曜日はダミーセル（罫線入りの紙＋曜日バッジ）にする。 */
+  private renderWeek(): void {
+    const todayKey = dateKeyFor(new Date());
+    const currentWeekSunday = sundayOf(todayKey);
+    const displayedSunday = shiftDateKey(currentWeekSunday, -7 * this.weekIndex);
 
     this.grid.innerHTML = "";
-    for (let i = 0; i < pageSize; i++) {
-      const dateKey = pageItems[i];
-      this.grid.appendChild(dateKey ? this.buildCell(dateKey) : buildDummyCell());
+    for (let weekday = 0; weekday < 7; weekday++) {
+      const dateKey = shiftDateKey(displayedSunday, weekday);
+      const cell = this.archivedDateSet.has(dateKey)
+        ? this.buildCell(dateKey)
+        : buildWeekdayDummyCell(weekday);
+      this.grid.appendChild(cell);
     }
+    this.grid.appendChild(this.prevWeekBtn);
+    this.grid.appendChild(this.nextWeekBtn);
 
-    this.pageLabel.textContent = `${this.page + 1} / ${totalPages}`;
-    this.prevPageBtn.disabled = this.page === 0;
-    this.nextPageBtn.disabled = this.page >= totalPages - 1;
+    const saturdayKey = shiftDateKey(displayedSunday, 6);
+    this.weekRangeLabel.textContent = `${formatCellDateLabel(displayedSunday)}〜${formatCellDateLabel(saturdayKey)}`;
+
+    // 「前の週へ」は、最も古いarchive日付が属する週にいる（またはそもそも
+    // 記録が1件も無い）間は非活性にする（ユーザー指示）。「次の週へ」は
+    // 今週（weekIndex===0）の間は非活性——日付めくり帯の「進む」が今日で
+    // 非活性になるのと同じ考え方。
+    this.prevWeekBtn.disabled = this.oldestWeekSunday === null || displayedSunday === this.oldestWeekSunday;
+    this.nextWeekBtn.disabled = this.weekIndex === 0;
   }
 
   /** グリッドは索引役に徹する（ユーザー指示）——セル自体はドラッグ・
@@ -207,19 +219,13 @@ class RecordGrid {
       this.close();
       return;
     }
-    if (ev.key === "ArrowRight") {
-      this.page += 1;
-      this.renderPage();
-    } else if (ev.key === "ArrowLeft") {
-      this.page -= 1;
-      this.renderPage();
+    if (ev.key === "ArrowRight" && !this.nextWeekBtn.disabled) {
+      this.weekIndex -= 1;
+      this.renderWeek();
+    } else if (ev.key === "ArrowLeft" && !this.prevWeekBtn.disabled) {
+      this.weekIndex += 1;
+      this.renderWeek();
     }
-  };
-
-  /** 画面幅が変わる（ウィンドウリサイズ・端末回転）とcellsPerPage()の結果
-   *  自体が変わり得るため、開いている間だけ描き直す。 */
-  private onResize = (): void => {
-    this.renderPage();
   };
 
   open(onSelectDate: (dateKey: string) => void): void {
@@ -230,7 +236,6 @@ class RecordGrid {
     this.lastFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     this.setVisible(true);
     window.addEventListener("keydown", this.onKeyDown, true);
-    window.addEventListener("resize", this.onResize);
     requestAnimationFrame(() => this.sheet.focus());
   }
 
@@ -238,7 +243,6 @@ class RecordGrid {
     if (!this.opened) return;
     this.opened = false;
     window.removeEventListener("keydown", this.onKeyDown, true);
-    window.removeEventListener("resize", this.onResize);
     this.setVisible(false);
     this.lastFocused?.focus();
     this.lastFocused = null;
@@ -250,22 +254,19 @@ function formatCellDateLabel(dateKey: string): string {
   return `${m}月${d}日`;
 }
 
-/** UI装飾用の薄いインク色（メモ本体のインク色とは無関係）。usageGuide.tsの
- *  guideInkColor()と同じ考え方で、テーマのCSS変数から読む。 */
-function silhouetteInkColor(): string {
-  return (
-    getComputedStyle(document.documentElement).getPropertyValue("--ink-35").trim() ||
-    "oklch(22% 0.012 55 / 0.35)"
-  );
+/** UI装飾用の色をテーマのCSS変数から読む共通ヘルパー。usageGuide.tsの
+ *  guideInkColor()と同じ考え方——フォールバックはCSS変数未定義時の保険。 */
+function themeColor(varName: string, fallback: string): string {
+  return getComputedStyle(document.documentElement).getPropertyValue(varName).trim() || fallback;
 }
 
 /**
- * ダミーセル（そのページの枠数に実データが満たない分を埋める、中身の無い
- * セル）のサムネイル。円相のキャンバスと同じ角丸正方形（CANVAS_FRAME_SHAPE）
- * を、塗りつぶさず薄い輪郭線だけで描く（ユーザー指示：既存の空状態シルエットと
- * 同じ見た目）——実際のメモは一切描かない。
+ * ダミーセル（実データの無い曜日を埋める、中身の無いセル）のサムネイル。
+ * 本体キャンバスと同じ罫線入りの紙（drawRuledPaper、CANVAS_FRAME_SHAPEで
+ * クリップ）の上に、曜日バッジ（丸＋文字）を重ねて描く（ユーザー指示）。
+ * 実際のメモは一切描かない。
  */
-function renderDummyThumbnail(canvas: HTMLCanvasElement): void {
+function renderDummyThumbnail(canvas: HTMLCanvasElement, weekday: number): void {
   const dpr = Math.max(1, window.devicePixelRatio || 1);
   const size = THUMBNAIL_SIZE_PX;
   canvas.width = size * dpr;
@@ -275,15 +276,59 @@ function renderDummyThumbnail(canvas: HTMLCanvasElement): void {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, size, size);
 
-  const lineWidth = 2;
-  const half = size / 2 - lineWidth;
+  const half = size / 2;
   ctx.save();
-  ctx.translate(size / 2, size / 2);
-  ctx.lineWidth = lineWidth;
-  ctx.strokeStyle = silhouetteInkColor();
-  ctx.stroke(CANVAS_FRAME_SHAPE.buildPath(half));
+  ctx.translate(half, half);
+  ctx.clip(CANVAS_FRAME_SHAPE.buildPath(half));
+  drawRuledPaper(ctx, half);
+  ctx.restore();
+
+  drawWeekdayBadge(ctx, half, half, half * 0.34, weekday);
+}
+
+/** 曜日バッジ：土曜＝青地に白文字「土」、日曜＝赤地に白文字「日」、それ以外＝
+ *  白地（輪郭線あり）に濃色文字でその曜日の漢字1文字（ユーザー指示）。 */
+function drawWeekdayBadge(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  radius: number,
+  weekday: number
+): void {
+  const isSunday = weekday === 0;
+  const isSaturday = weekday === 6;
+
+  let fill: string;
+  let strokeColor: string | null = null;
+  let textColor: string;
+  if (isSunday) {
+    fill = themeColor("--accent-red", "oklch(52% 0.2 25)");
+    textColor = "#ffffff";
+  } else if (isSaturday) {
+    fill = themeColor("--accent-blue", "oklch(48% 0.16 258)");
+    textColor = "#ffffff";
+  } else {
+    fill = "#ffffff";
+    strokeColor = themeColor("--ink-20", "oklch(22% 0.012 55 / 0.2)");
+    textColor = themeColor("--ink-70", "oklch(22% 0.012 55 / 0.7)");
+  }
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fillStyle = fill;
+  ctx.fill();
+  if (strokeColor) {
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = strokeColor;
+    ctx.stroke();
+  }
+  ctx.fillStyle = textColor;
+  ctx.font = `600 ${Math.round(radius)}px "Noto Sans JP", sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(WEEKDAY_LABELS[weekday], cx, cy + radius * 0.05);
   ctx.restore();
 }
 
@@ -291,7 +336,7 @@ function renderDummyThumbnail(canvas: HTMLCanvasElement): void {
  *  同じ行に実セルと混在してもグリッドの行の高さが揃う。クリック・フォーカス
  *  対象ではないため<button>ではなく<div>にし、aria-hidden・空のラベルで
  *  スクリーンリーダー・タブ移動からは見えないようにする。 */
-function buildDummyCell(): HTMLElement {
+function buildWeekdayDummyCell(weekday: number): HTMLElement {
   const cell = document.createElement("div");
   cell.className = "record-grid-cell record-grid-cell--dummy";
   cell.setAttribute("aria-hidden", "true");
@@ -299,11 +344,11 @@ function buildDummyCell(): HTMLElement {
   const canvas = document.createElement("canvas");
   canvas.className = "record-grid-thumb record-grid-thumb--dummy";
   cell.appendChild(canvas);
-  renderDummyThumbnail(canvas);
+  renderDummyThumbnail(canvas, weekday);
 
   const label = document.createElement("span");
   label.className = "record-grid-cell-label";
-  label.textContent = " ";
+  label.textContent = " ";
   cell.appendChild(label);
 
   return cell;

@@ -1604,10 +1604,10 @@ body {
 }
 
 /* 窓の大きさ・形は記録の件数に関わらず常に一定にする（ユーザー指示）——
-   中身のグリッド（.record-grid-cells）自体が「1ページあたりの枠数」固定の
-   グリッドになったため、この器もwidth: min(64rem, 100%)のような画面幅
+   中身のグリッド（.record-grid-cells）自体が日〜土＋週送り2マスの9マス
+   固定になったため、この器もwidth: min(64rem, 100%)のような画面幅
    いっぱいに広げる指定はやめ、中身にフィットするfit-contentにする
-   （件数が変わってもページ送りするだけで、器自体は伸び縮みしない）。 */
+   （件数が変わっても週送りするだけで、器自体は伸び縮みしない）。 */
 .record-grid-sheet {
   display: flex;
   flex-direction: column;
@@ -1662,15 +1662,14 @@ body {
   background: var(--paper-2);
 }
 
-/* --- グリッド本体。1ページあたりの列数・行数は固定（デスクトップ3×3、
-   モバイル2×2、recordGrid.ts cellsPerPage）——件数に関わらず窓の大きさを
-   一定に保つため、列数（grid-template-columns）はrenderPage()が画面幅に
-   応じて都度inline styleで指定する（ここでは3列を初期値として持つが、
-   実際は必ずJS側の値で上書きされる）。 --- */
+/* --- グリッド本体。3×3=9マス固定、デスクトップ・モバイル共通のレイアウト
+   （ユーザー指示：2×2のモバイル分岐は廃止）——常に「日・月・火・水・木・金・
+   土＋前の週へ＋次の週へ」の9項目で埋まる（recordGrid.ts renderWeek）。
+   セルの一辺（THUMBNAIL_SIZE_PX、recordGrid.ts）と揃えること。 --- */
 .record-grid-cells {
   display: grid;
-  grid-template-columns: repeat(3, 120px);
-  gap: var(--space-4);
+  grid-template-columns: repeat(3, 96px);
+  gap: var(--space-3);
   margin-top: var(--space-4);
 }
 
@@ -1695,10 +1694,10 @@ body {
   background: var(--paper-2);
 }
 
-/* --- ダミーセル（recordGrid.ts buildDummyCell）：そのページの枠数に実データが
-   満たない分を埋める、中身の無いセル。クリック対象ではないため<div>で
-   （タブ移動・ホバー反応も持たせない）、見た目は空状態のシルエットと同じ
-   薄い輪郭線だけの角丸正方形にする（ユーザー指示）。 --- */
+/* --- ダミーセル（recordGrid.ts buildWeekdayDummyCell）：実データの無い曜日を
+   埋める、中身の無いセル。クリック対象ではないため<div>で（タブ移動・
+   ホバー反応も持たせない）、見た目は本体キャンバスと同じ罫線入りの紙
+   （canvas側でdrawRuledPaper＋曜日バッジを描く）にする（ユーザー指示）。 --- */
 .record-grid-cell--dummy {
   cursor: default;
 }
@@ -1712,15 +1711,11 @@ body {
 }
 
 /* 紙の輪郭に沿って浮かせる影は、本体キャンバス・過去めくり画面
-   （.archive-canvas）と同じ--canvas-shadowに揃える。ダミーセルは実際の紙が
-   無い輪郭線だけのため、影は付けない。 */
+   （.archive-canvas）と同じ--canvas-shadowに揃える。ダミーセルも罫線入りの
+   紙になったため、実セルと同じ影でよい。 */
 .record-grid-thumb {
   display: block;
   filter: var(--canvas-shadow);
-}
-
-.record-grid-thumb--dummy {
-  filter: none;
 }
 
 .record-grid-cell-label {
@@ -1728,48 +1723,35 @@ body {
   color: var(--ink-60);
 }
 
-/* --- ページめくり（recordGrid.ts、日付めくり帯#history-stripと近い見た目の
-   ◀ページ数▶）。1ページに収まる件数の時も常に表示し続け、活性状態
-   （disabled）だけで出し引きする——窓の大きさ・形を記録の件数に関わらず
-   常に一定にするため（ユーザー指示）、要素自体はレイアウトから消さない。 --- */
-.record-grid-pagination {
-  display: flex;
+/* --- 週送りセル（recordGrid.ts buildNavCell）。日〜土の7マスと同じグリッドの
+   8・9番目のマスとして埋め込む——紙質の実セル・ダミーセルとは見た目で明確に
+   区別するため、黒背景＋白い矢印グリフにする（ユーザー指示）。グリッドの
+   既定（stretch）により、同じ行の紙セル（サムネイル＋ラベル分の高さ）と
+   自動的に高さが揃う。 --- */
+.record-grid-nav-cell {
+  background: var(--ink-solid);
+  color: var(--paper-1);
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
-  margin-top: var(--space-3);
-  flex: 0 0 auto;
-}
-
-.record-grid-page-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 1.625rem;
-  height: 1.625rem;
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--ink-70);
-  font-size: var(--text-sm);
+  font-size: 1.5rem;
   line-height: 1;
-  cursor: pointer;
-  transition: color var(--duration-fast) ease, opacity var(--duration-fast) ease;
 }
 
-.record-grid-page-btn:hover {
-  color: var(--ink-solid);
+.record-grid-nav-cell:hover {
+  background: var(--ink-85);
 }
 
-.record-grid-page-btn:disabled {
+.record-grid-nav-cell:disabled {
   opacity: 0.35;
   cursor: default;
   pointer-events: none;
 }
 
-.record-grid-page-label {
-  min-width: 3.5em;
+/* --- 表示中の週の日付範囲（recordGrid.ts renderWeek、例:「10月10日〜10月17日」）。
+   以前ここにあった「1/2ページ」のようなページ番号の表示位置をそのまま
+   引き継ぐ（ユーザー指示）。 --- */
+.record-grid-week-range {
+  margin: var(--space-3) 0 0;
   text-align: center;
   font-size: var(--text-xs);
   font-weight: 500;
