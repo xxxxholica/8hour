@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   appendExportEvent,
+  listArchivedDateKeys,
   loadArchive,
   loadArchiveExportFlags,
   loadExportEvents,
@@ -232,6 +233,37 @@ describe("アーカイブ（朝リセットで退避したメモ、dailyReset.ts
   it("壊れたJSON文字列は例外を投げず空配列を返す", () => {
     localStorage.setItem("archive:2026-09-01", "{not valid json");
     expect(loadArchive("2026-09-01")).toEqual([]);
+  });
+});
+
+describe("listArchivedDateKeys（記録一覧画面、recordGrid.ts参照）", () => {
+  const memo: Memo = {
+    id: "memo_listed",
+    kind: "stroke",
+    x: 0,
+    y: 0,
+    strokes: [[{ x: 0, y: 0 }]],
+    createdAt: 100,
+    status: "active",
+    tool: "pen",
+    color: "#000000",
+  };
+
+  it("未記録の間は空配列を返す", () => {
+    expect(listArchivedDateKeys()).toEqual([]);
+  });
+
+  it("保存済みの日付キーを全て返す", () => {
+    saveArchive("2026-09-01", [memo]);
+    saveArchive("2026-09-02", [memo]);
+    expect(listArchivedDateKeys().sort()).toEqual(["2026-09-01", "2026-09-02"]);
+  });
+
+  it("archive:以外のキー（memos/lastActiveDate等）は含めない", () => {
+    saveArchive("2026-09-01", [memo]);
+    saveMemos([memo]);
+    saveLastActiveDate("2026-09-03");
+    expect(listArchivedDateKeys()).toEqual(["2026-09-01"]);
   });
 });
 

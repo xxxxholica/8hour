@@ -127,6 +127,27 @@ export function saveArchive(dateKey: string, memos: Memo[]): void {
   localStorage.setItem(ARCHIVE_KEY_PREFIX + dateKey, JSON.stringify(memos));
 }
 
+/** 書き込みのあった日（archive:<日付>キーが存在する日）の日付部分だけを
+ *  全て返す（順不同、並び替えは呼び出し側の責任）。saveArchiveは中身が
+ *  1件以上ある日にしか呼ばれない（dailyReset.ts）ため、ここで返す日付は
+ *  すべて「その日何かを書いた日」に一致する——空判定を別途行う必要はない。
+ *  記録一覧画面（recordGrid.ts）が、過去めくり画面と違い書き込みのあった日
+ *  だけを一覧表示するために使う。 */
+export function listArchivedDateKeys(): string[] {
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key?.startsWith(ARCHIVE_KEY_PREFIX)) {
+        keys.push(key.slice(ARCHIVE_KEY_PREFIX.length));
+      }
+    }
+    return keys;
+  } catch {
+    return [];
+  }
+}
+
 /** 朝リセット（dailyReset.ts）が最後にキャンバスを見た暦日（"YYYY-MM-DD"）。
  *  この日付と当日の日付を比較して、変わっていればアーカイブへ退避する。
  *  未設定（この機能を初めて読み込む既存ユーザー）の間はnull。 */
