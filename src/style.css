@@ -658,7 +658,11 @@ body {
    ツールバーの一部に見えてしまっていたのを直したい）。 --- */
 .footer-tools-row {
   display: flex;
-  align-items: center;
+  /* 既定（stretch）にすることで、道具バー（.control-panel）とトリガーの
+     カード（.record-grid-trigger-card）の縦幅を揃える（ユーザー指摘：
+     縦幅が揃っていなかった）——align-items:centerだとカードは中身にフィット
+     する高さのまま並ぶだけで、道具バー側の実際の高さには追従しない。 */
+  align-items: stretch;
   gap: var(--space-3);
 }
 
