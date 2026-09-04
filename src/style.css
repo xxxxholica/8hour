@@ -757,6 +757,11 @@ body {
   flex: none;
 }
 
+.record-grid-trigger-thumb {
+  display: block;
+  border-radius: 6px;
+}
+
 /* --- 道具バー：道具アイコンを1列（.toolbar-pill）に、すべて同じ大きさ
    （.toolbar-btn）で揃えたもの（.toolbar-tools）。消しゴムの大きさ等
    道具固有の詳細設定は、道具バーの中ではなく別カード（追従カード、

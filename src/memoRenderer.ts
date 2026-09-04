@@ -1,3 +1,4 @@
+import { CANVAS_FRAME_SHAPE } from "./frameShape";
 import { fontPxForRender, LINE_HEIGHT_MULTIPLIER, TEXT_FONT_FAMILY } from "./textLayout";
 import { toolRenderStyle } from "./toolStyle";
 import type { Memo } from "./types";
@@ -75,4 +76,39 @@ export function renderMemoAt(
     ctx.fillText(line, lx, ly);
     ly += lineHeight;
   }
+}
+
+/**
+ * メモの一覧（1日分のアーカイブ等）を、白紙＋本体キャンバスと同じ角丸正方形
+ * （CANVAS_FRAME_SHAPE）に収めた正方形のサムネイルとしてcanvasへ描く。
+ * ラスター画像は一切保持していないため、保存済みのベクターデータ（正規化座標の
+ * ストローク・テキスト）をrenderMemoAtでそのままsizePxへ再描画する——保存側の
+ * 解像度に縛られず劣化なく任意の大きさで描ける。記録一覧画面（recordGrid.ts）
+ * のグリッドと、道具バーの独立トリガー（toolbar.ts）のミニアイコンの両方から
+ * 共通で使う。日付めくり画面（ArchiveCanvas）と違いこの大きさでは罫線
+ * （drawRuledPaper）が潰れて見えるだけなので描かず、白背景＋インクだけにする。
+ */
+export function renderMemoThumbnail(canvas: HTMLCanvasElement, memos: readonly Memo[], sizePx: number): void {
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  canvas.width = sizePx * dpr;
+  canvas.height = sizePx * dpr;
+  canvas.style.width = `${sizePx}px`;
+  canvas.style.height = `${sizePx}px`;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  // メモの座標は「キャンバスの半辺を1とする正規化座標」（types.ts参照）のため、
+  // radius（半辺のpx）はサムネイルの半分の一辺にそのまま一致する。
+  const half = sizePx / 2;
+  ctx.save();
+  ctx.translate(half, half);
+  ctx.clip(CANVAS_FRAME_SHAPE.buildPath(half));
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(-half, -half, sizePx, sizePx);
+  for (const memo of memos) {
+    if (memo.status !== "active") continue;
+    renderMemoAt(ctx, memo, half, 1);
+  }
+  ctx.restore();
 }

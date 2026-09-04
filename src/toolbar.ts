@@ -1,6 +1,8 @@
 import { createFadeVisibility } from "./fadeVisibility";
 import { notifyClose, notifyOpen } from "./exclusivePopover";
 import { ICONS } from "./icons";
+import { renderMemoThumbnail } from "./memoRenderer";
+import { listArchivedDateKeys, loadArchive } from "./storage";
 import { DEFAULT_FONT_SIZE_STEP, FONT_SIZE_STEPS } from "./textLayout";
 import { PEN_LINE_WIDTH } from "./toolStyle";
 import type { DrawTool } from "./types";
@@ -14,6 +16,11 @@ export interface RecordGridTriggerOptions {
   container: HTMLElement;
   onOpen: () => void;
 }
+
+/** トリガー内のサムネイル（過去の記録が1件以上ある場合の直近日プレビュー）の
+ *  一辺（CSSピクセル）。ボタン本体（.toolbar-btn、2.375rem=38px）の内側に
+ *  収まる大きさにする。 */
+const RECORD_GRID_TRIGGER_THUMB_SIZE_PX = 26;
 
 /** "none"は「道具なし」（選択中の道具をもう一度押して解除した状態、
  *  ユーザー指示）。ボタンには対応せず、setTool内部でだけ使う——canvasView.ts
@@ -147,6 +154,11 @@ export class Toolbar {
   /** マーカーで使う色。既定はMARKER_PRESET_INKSの1つ目（シアン）。 */
   private markerColor: string = MARKER_PRESET_INKS[0].color;
   private eraserRadius: number = ERASER_SIZE_STEPS.medium;
+
+  /** 記録一覧画面への独立トリガー本体。RecordGridTriggerOptionsが渡されな
+   *  かった（呼び出し側が使わない）場合はnullのまま——refreshRecordGridTrigger
+   *  は何もしない。 */
+  private recordGridTriggerBtn: HTMLButtonElement | null = null;
 
   private toolButtons = new Map<ToolbarTool, HTMLButtonElement>();
 
@@ -319,10 +331,31 @@ export class Toolbar {
     btn.type = "button";
     btn.className = "toolbar-btn record-grid-trigger-btn";
     btn.setAttribute("aria-label", "過去の記録");
-    btn.innerHTML = ICONS.recordGrid;
     btn.addEventListener("click", () => options.onOpen());
     this.attachToolTooltip(btn, "過去の記録");
     options.container.appendChild(btn);
+    this.recordGridTriggerBtn = btn;
+    this.refreshRecordGridTrigger();
+  }
+
+  /** トリガーの中身を最新状態に合わせて描き直す。過去の記録が1件以上あれば
+   *  直近（最新）のarchive日付のキャンバス内容を小さく縮小レンダリングした
+   *  サムネイルを、1件も無ければ固定のグリッドアイコン（ICONS.recordGrid）を
+   *  表示する（ユーザー指示）。朝リセットで新しい記録が増えた直後にも呼べる
+   *  よう公開メソッドにしてある（main.tsのvisibilitychangeハンドラ参照）。 */
+  refreshRecordGridTrigger(): void {
+    const btn = this.recordGridTriggerBtn;
+    if (!btn) return;
+    const latestDateKey = listArchivedDateKeys().sort().at(-1);
+    if (!latestDateKey) {
+      btn.innerHTML = ICONS.recordGrid;
+      return;
+    }
+    btn.innerHTML = "";
+    const canvas = document.createElement("canvas");
+    canvas.className = "record-grid-trigger-thumb";
+    btn.appendChild(canvas);
+    renderMemoThumbnail(canvas, loadArchive(latestDateKey), RECORD_GRID_TRIGGER_THUMB_SIZE_PX);
   }
 
   /** 道具ボタンにホバー用の小さな案内（ペン／マーカー／テキスト／選択／

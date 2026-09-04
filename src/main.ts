@@ -382,6 +382,9 @@ document.addEventListener("visibilitychange", () => {
   if (performDailyResetIfNeeded()) {
     store.replaceAll([]);
     maybeShowFirstResetHint();
+    // 朝リセットで新しいarchive日付が増えた直後は、道具バー横のトリガー
+    // （最新日のサムネイル）も古いままなので描き直す。
+    toolbar.refreshRecordGridTrigger();
   }
 });
 

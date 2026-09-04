@@ -1,8 +1,6 @@
-import { CANVAS_FRAME_SHAPE } from "./frameShape";
 import { createFadeVisibility } from "./fadeVisibility";
-import { renderMemoAt } from "./memoRenderer";
+import { renderMemoThumbnail } from "./memoRenderer";
 import { listArchivedDateKeys, loadArchive } from "./storage";
-import type { Memo } from "./types";
 
 /**
  * 記録一覧画面：書き込みのあった日（archive:<日付>キーが存在する日）だけを、
@@ -123,7 +121,7 @@ class RecordGrid {
     const canvas = document.createElement("canvas");
     canvas.className = "record-grid-thumb";
     btn.appendChild(canvas);
-    renderThumbnail(canvas, loadArchive(dateKey));
+    renderMemoThumbnail(canvas, loadArchive(dateKey), THUMBNAIL_SIZE_PX);
 
     const label = document.createElement("span");
     label.className = "record-grid-cell-label";
@@ -162,39 +160,4 @@ class RecordGrid {
 function formatCellDateLabel(dateKey: string): string {
   const [, m, d] = dateKey.split("-").map(Number);
   return `${m}月${d}日`;
-}
-
-/**
- * 1マスのサムネイルを描く。ラスター画像は一切保存していないため、保存済みの
- * ベクターデータ（正規化座標のストローク・テキスト）をそのままrenderMemoAtで
- * サムネイルの大きさへ再描画する——保存側の解像度に縛られず、劣化なく任意の
- * 大きさで描ける。日付めくり画面（ArchiveCanvas）と違い1画面に多数のサムネイルが
- * 並ぶため、罫線（drawRuledPaper）はこの大きさでは潰れて見えるだけなので省略し、
- * 白背景＋インクだけを描く。枠の輪郭は本体キャンバスと同じCANVAS_FRAME_SHAPE
- * （角丸正方形）に揃える。
- */
-function renderThumbnail(canvas: HTMLCanvasElement, memos: readonly Memo[]): void {
-  const dpr = Math.max(1, window.devicePixelRatio || 1);
-  const size = THUMBNAIL_SIZE_PX;
-  canvas.width = size * dpr;
-  canvas.height = size * dpr;
-  canvas.style.width = `${size}px`;
-  canvas.style.height = `${size}px`;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-  // メモの座標は「キャンバスの半辺を1とする正規化座標」（types.ts参照）のため、
-  // radius（半辺のpx）はサムネイルの半分の一辺にそのまま一致する。
-  const half = size / 2;
-  ctx.save();
-  ctx.translate(half, half);
-  ctx.clip(CANVAS_FRAME_SHAPE.buildPath(half));
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(-half, -half, size, size);
-  for (const memo of memos) {
-    if (memo.status !== "active") continue;
-    renderMemoAt(ctx, memo, half, 1);
-  }
-  ctx.restore();
 }
