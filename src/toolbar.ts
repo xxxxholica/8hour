@@ -138,6 +138,8 @@ export class Toolbar {
   private markerColor: string = MARKER_PRESET_INKS[0].color;
   private eraserRadius: number = ERASER_SIZE_STEPS.medium;
 
+  private onOpenRecordGrid?: () => void;
+
   private toolButtons = new Map<ToolbarTool, HTMLButtonElement>();
 
   /** 消しゴムの大きさ（小/中/大）を選ぶボタンの行（buildEraserSizeSteps参照）。
@@ -178,18 +180,21 @@ export class Toolbar {
     container: HTMLElement,
     colorSwatchContainer: HTMLElement,
     onChange?: () => void,
-    onUndo?: () => void
+    onUndo?: () => void,
+    onOpenRecordGrid?: () => void
   ) {
     this.container = container;
     this.colorSwatchContainer = colorSwatchContainer;
     this.onChange = onChange;
     this.onUndo = onUndo;
+    this.onOpenRecordGrid = onOpenRecordGrid;
 
     this.el = document.createElement("div");
     this.el.className = "toolbar";
     this.container.appendChild(this.el);
 
     this.buildTools();
+    this.buildRecordGridTrigger();
     this.buildEraserSizeSteps(this.colorSwatchContainer);
     this.buildSwatch(this.colorSwatchContainer);
     this.syncAll();
@@ -293,6 +298,23 @@ export class Toolbar {
       btn.setAttribute("aria-pressed", String(active));
       btn.dataset.active = String(active);
     }
+  }
+
+  /** 記録一覧画面（recordGrid.ts）を開くトリガー。既存のツール選択ボタン群
+   *  （.toolbar-pill）とは分離した、単独の独立ボタンとして道具バーの右側に
+   *  置く（ユーザー指示：既存の道具の切り替えとは別物として扱いたい）——
+   *  トグルで選択状態を持つ道具ボタンと違い、押すたびに画面を開くだけの
+   *  一過性の操作のため、toolButtonsには含めずaria-pressed等も持たせない。 */
+  private buildRecordGridTrigger(): void {
+    if (!this.onOpenRecordGrid) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "toolbar-btn toolbar-record-grid-btn";
+    btn.setAttribute("aria-label", "過去の記録");
+    btn.innerHTML = ICONS.recordGrid;
+    btn.addEventListener("click", () => this.onOpenRecordGrid?.());
+    this.attachToolTooltip(btn, "過去の記録");
+    this.el.appendChild(btn);
   }
 
   /** 道具ボタンにホバー用の小さな案内（ペン／マーカー／テキスト／選択／

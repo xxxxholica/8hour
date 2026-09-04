@@ -4,6 +4,7 @@ import { CircularCanvas } from "./canvasView";
 import { createFadeVisibility, FADE_TRANSITION_MS } from "./fadeVisibility";
 import { daysBetween, dateKeyFor, performDailyResetIfNeeded, shiftDateKey } from "./dailyReset";
 import { MemoStore } from "./memoStore";
+import { openRecordGrid } from "./recordGrid";
 import { Toolbar } from "./toolbar";
 import { SettingsMenu } from "./settingsMenu";
 import {
@@ -108,7 +109,16 @@ const onToolChange = () => {
   canvasView.closeWritingSession();
   canvasView.finishTextEditingIfOpen();
 };
-const toolbar = new Toolbar(primarySlot, colorSwatchSlot, onToolChange, () => canvasView.undo());
+// 記録一覧画面（recordGrid.ts）：道具バーの右側に置いた独立トリガーから開く
+// 全画面グリッド。セルをタップして選ばれた日付は、日付めくり画面
+// （setHistoryOffset、下記で定義）へそのまま渡して開く——グリッド側は索引役に
+// 徹し、閲覧・持ち出しの操作は日付めくり画面に一本化する（ユーザー指示）。
+// setHistoryOffsetは関数宣言（巻き上げられる）のため、実際に呼ばれる時点
+// （ユーザーがセルをタップした後）には定義済みであれば良く、ここで先に
+// 参照しても問題ない。
+const toolbar = new Toolbar(primarySlot, colorSwatchSlot, onToolChange, () => canvasView.undo(), () =>
+  openRecordGrid((dateKey) => setHistoryOffset(daysBetween(dateKey, dateKeyFor(new Date()))))
+);
 
 const getToolState = () => ({
   tool: toolbar.getTool(),
