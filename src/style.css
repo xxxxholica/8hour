@@ -1787,11 +1787,13 @@ body {
      幅fit-content（.record-grid-sheetの既定）で自然な大きさに収まるため、
      外枠を正方形にするには、その分だけ左右の余白を上下より広げて帳尻を
      合わせる——実測（グリッド width 600px / height 662px）から、上下40px・
-     左右71pxで幅・高さとも742pxになることを確認済み。角丸はこの742pxを
-     基準に本体キャンバス（CANVAS_FRAME_SHAPE、半径＝一辺の15%）と揃える。 */
+     左右71pxで幅・高さとも742pxになることを確認済み。角丸は当初
+     CANVAS_FRAME_SHAPEの比率通り15%にしていたが、実際に本体キャンバスと
+     並べると風船のように丸すぎたため（ユーザー指摘）、計算式ではなく
+     見た目で本体キャンバスに近づくよう11%まで下げて調整している。 */
   .record-grid-sheet {
     padding: 40px 71px;
-    border-radius: 15%;
+    border-radius: 11%;
     justify-content: center;
   }
 
