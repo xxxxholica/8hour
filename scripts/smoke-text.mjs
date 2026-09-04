@@ -1,7 +1,11 @@
 import { chromium } from "playwright";
 
 const errors = [];
-const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+// ブラウザ本体の場所はPlaywrightの既定解決に任せる——PLAYWRIGHT_BROWSERS_PATH
+// が設定されていればそこを、未設定ならデフォルトのキャッシュ（`npx playwright
+// install`が置く場所）を見る。固定パスを直書きすると、そのパスが存在しない
+// 環境（ローカル開発機など）で即座に起動失敗していた。
+const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 500, height: 900 } });
 page.on("console", (msg) => {
   if (msg.type() === "error") errors.push(msg.text());
@@ -86,16 +90,6 @@ console.log("REAL_ESCAPE_EDITOR_CLOSES", !(await page.locator(".text-editor-over
 memos = await page.evaluate(() => JSON.parse(localStorage.getItem("memos") ?? "[]"));
 console.log("REAL_ESCAPE_MEMO_COUNT_UNCHANGED", memos.length);
 
-// なぞって復活: テキスト以外の道具（鉛筆）でテキストメモに触れると、編集は開かずに
-// 単純ななぞり復活になる（textHistoryだけ伸びる）
-await page.locator('.toolbar-btn[aria-label="鉛筆"]').click();
-let beforeTrace = memos[0].traceHistory.length;
-await page.mouse.click(cx - 40, cy - 60);
-await page.waitForTimeout(150);
-memos = await page.evaluate(() => JSON.parse(localStorage.getItem("memos") ?? "[]"));
-console.log("TRACE_HISTORY_GREW_VIA_PENCIL", memos[0].traceHistory.length > beforeTrace);
-console.log("EDITOR_OPENED_VIA_PENCIL", await page.locator(".text-editor-overlay").isVisible());
-
 // --- ここからテキスト編集機能のテスト ---
 
 // テキスト道具に戻し、既存のテキストメモをタップすると編集が開く（既存内容が入っている）
@@ -111,12 +105,10 @@ console.log("EDIT_PREFILL_MATCHES_ORIGINAL", prefillValue === "こんにちは\n
 await page.keyboard.press("End");
 await page.keyboard.type("（編集済み）");
 await page.waitForTimeout(50);
-beforeTrace = memos[0].traceHistory.length;
 await page.locator("body").click({ position: { x: 10, y: 10 } });
 await page.waitForTimeout(150);
 memos = await page.evaluate(() => JSON.parse(localStorage.getItem("memos") ?? "[]"));
 console.log("EDIT_TEXT_UPDATED", memos[0].text === "こんにちは\nテキストメモ（編集済み）");
-console.log("EDIT_COUNTS_AS_REVIVE", memos[0].traceHistory.length > beforeTrace);
 console.log("EDIT_MEMO_COUNT_UNCHANGED", memos.length === 1);
 
 // 編集中にEscapeを押すと、内容を書き換えても元のまま変更が破棄される

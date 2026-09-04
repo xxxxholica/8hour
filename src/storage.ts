@@ -1,22 +1,16 @@
-import { DEFAULT_FRAME_PATTERN_ID } from "./framePattern";
-import type { FramePatternId } from "./framePattern";
-import { DEFAULT_FRAME_SHAPE_ID } from "./frameShape";
-import type { FrameShapeId } from "./frameShape";
 import { DEFAULT_FONT_SIZE_STEP, FONT_SIZE_STEPS, LINE_HEIGHT_MULTIPLIER, normalizedBoxSize } from "./textLayout";
-import type { TemplateDef } from "./templates";
 import type { DrawTool, Memo, StrokeMemo, TextMemo } from "./types";
 
 const STORAGE_KEY = "memos";
-const FRAME_SHAPE_KEY = "smuiFrameShape";
-const FRAME_PATTERN_KEY = "smuiFramePattern";
-const PERSONAL_FRAME_PATTERN_KEY = "personalFramePattern";
-const CUSTOM_TEMPLATES_KEY = "customTemplates";
+const ARCHIVE_KEY_PREFIX = "archive:";
+const LAST_ACTIVE_DATE_KEY = "lastActiveDate";
+const EXPORT_EVENTS_KEY = "exportEvents";
+const ARCHIVE_EXPORT_FLAGS_KEY = "archiveExportFlags";
+const FIRST_RESET_HINT_SHOWN_KEY = "firstResetHintShown";
 const USAGE_GUIDE_SEEN_KEY = "usageGuideSeen";
 const THEME_KEY = "themePreference";
 const DEFAULT_TOOL: DrawTool = "pen";
 const DEFAULT_COLOR = "oklch(22% 0.012 55)";
-const VALID_FRAME_SHAPES = new Set<FrameShapeId>(["round", "oval", "square"]);
-const VALID_FRAME_PATTERNS = new Set<FramePatternId>(["matte", "tortoiseshell", "clear", "wood"]);
 /** "system"はOSのprefers-color-schemeに従う（既定）。"light"/"dark"は明示的に固定。
  *  "custom"（好きな色を選ぶ、issue #138）はOSに存在しないパステルテーマの
  *  ため、"system"では選ばれず、明示的に選んだ時だけ固定される——色トークンの
@@ -41,8 +35,6 @@ function isMemoShaped(value: unknown): value is Record<string, unknown> {
     typeof m.x === "number" &&
     typeof m.y === "number" &&
     typeof m.createdAt === "number" &&
-    typeof m.lastTracedAt === "number" &&
-    (m.lifespanDays === null || typeof m.lifespanDays === "number") &&
     (m.status === "active" || m.status === "faded");
   if (!baseOk) return false;
 
@@ -52,29 +44,16 @@ function isMemoShaped(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * 古い形式のデータ（道具・色・なぞり履歴・kindを持たない）を補い、現在の形式に揃える。
- * traceHistoryが無い場合はcreatedAt/lastTracedAtから最善の推測で組み立てる
- * （複数回なぞり直した履歴までは復元できないが、破綻はしない）。
+ * 古い形式のデータ（道具・色・kindを持たない）を補い、現在の形式に揃える。
+ * 経時フェード機能があった旧バージョンのlastTracedAt/traceHistory/lifespanDays
+ * フィールドはJSON上に残っていても無視する（現在の型では扱わない）。
  */
 function migrate(raw: Record<string, unknown>): Memo {
-  const createdAt = raw.createdAt as number;
-  const lastTracedAt = raw.lastTracedAt as number;
-  const hasValidTraceHistory =
-    Array.isArray(raw.traceHistory) && raw.traceHistory.every((n) => typeof n === "number");
-  const traceHistory = hasValidTraceHistory
-    ? (raw.traceHistory as number[])
-    : lastTracedAt !== createdAt
-      ? [createdAt, lastTracedAt]
-      : [createdAt];
-
   const base = {
     id: raw.id as string,
     x: raw.x as number,
     y: raw.y as number,
-    createdAt,
-    lastTracedAt,
-    traceHistory,
-    lifespanDays: raw.lifespanDays as Memo["lifespanDays"],
+    createdAt: raw.createdAt as number,
     status: raw.status as Memo["status"],
     color: typeof raw.color === "string" ? raw.color : DEFAULT_COLOR,
   };
@@ -106,6 +85,7 @@ function migrate(raw: Record<string, unknown>): Memo {
     kind: "stroke",
     strokes: raw.strokes as StrokeMemo["strokes"],
     tool: typeof raw.tool === "string" ? (raw.tool as DrawTool) : DEFAULT_TOOL,
+    lineWidth: typeof raw.lineWidth === "number" ? raw.lineWidth : undefined,
   };
   return strokeMemo;
 }
@@ -127,54 +107,98 @@ export function saveMemos(memos: Memo[]): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(memos));
 }
 
-/** SMUI（眼鏡デュアルビュー）で選んだフレーム形状（着せ替え）。 */
-export function loadFrameShape(): FrameShapeId {
+/** 朝リセット（dailyReset.ts）で退避した、日付キーごとのメモ一覧。memosキーと
+ *  同じ形式（Memo[]のJSON）で、キーだけ`archive:<日付>`にして日付ごとに独立させる。
+ *  読み込み時はmemosキーと同じmigrateを通す——アーカイブは無期限保持されるため、
+ *  古い形式のデータが残っていても読めるようにする必要がある。 */
+export function loadArchive(dateKey: string): Memo[] {
   try {
-    const raw = localStorage.getItem(FRAME_SHAPE_KEY);
-    return raw !== null && VALID_FRAME_SHAPES.has(raw as FrameShapeId)
-      ? (raw as FrameShapeId)
-      : DEFAULT_FRAME_SHAPE_ID;
+    const raw = localStorage.getItem(ARCHIVE_KEY_PREFIX + dateKey);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isMemoShaped).map(migrate);
   } catch {
-    return DEFAULT_FRAME_SHAPE_ID;
+    return [];
   }
 }
 
-export function saveFrameShape(id: FrameShapeId): void {
-  localStorage.setItem(FRAME_SHAPE_KEY, id);
+export function saveArchive(dateKey: string, memos: Memo[]): void {
+  localStorage.setItem(ARCHIVE_KEY_PREFIX + dateKey, JSON.stringify(memos));
 }
 
-/** 共有キャンバス（眼鏡形状）で選んだフレームの柄・質感（着せ替え）。 */
-export function loadFramePattern(): FramePatternId {
+/** 朝リセット（dailyReset.ts）が最後にキャンバスを見た暦日（"YYYY-MM-DD"）。
+ *  この日付と当日の日付を比較して、変わっていればアーカイブへ退避する。
+ *  未設定（この機能を初めて読み込む既存ユーザー）の間はnull。 */
+export function loadLastActiveDate(): string | null {
   try {
-    const raw = localStorage.getItem(FRAME_PATTERN_KEY);
-    return raw !== null && VALID_FRAME_PATTERNS.has(raw as FramePatternId)
-      ? (raw as FramePatternId)
-      : DEFAULT_FRAME_PATTERN_ID;
+    return localStorage.getItem(LAST_ACTIVE_DATE_KEY);
   } catch {
-    return DEFAULT_FRAME_PATTERN_ID;
+    return null;
   }
 }
 
-export function saveFramePattern(id: FramePatternId): void {
-  localStorage.setItem(FRAME_PATTERN_KEY, id);
+export function saveLastActiveDate(dateKey: string): void {
+  localStorage.setItem(LAST_ACTIVE_DATE_KEY, dateKey);
 }
 
-/** 個人キャンバスで選んだフレームの柄・質感(着せ替え)。共有キャンバス
- *  (loadFramePattern/saveFramePattern)とは別キーで持つ——サーバーに
- *  同期される共有ルームの見た目とは無関係な、この端末だけのローカル設定。 */
-export function loadPersonalFramePattern(): FramePatternId {
+/** コアループの利用実態の計測（E8-06）用の、書き出し操作の履歴1件。 */
+export interface ExportEvent {
+  timestamp: number;
+  kind: "image" | "text";
+}
+
+/** エクスポート操作（設定メニューのPNG/TXTボタン、exportControl.ts）のイベントログ。
+ *  ダッシュボード等は持たず、後からlocalStorageの中身を直接見て集計する前提。 */
+export function loadExportEvents(): ExportEvent[] {
   try {
-    const raw = localStorage.getItem(PERSONAL_FRAME_PATTERN_KEY);
-    return raw !== null && VALID_FRAME_PATTERNS.has(raw as FramePatternId)
-      ? (raw as FramePatternId)
-      : DEFAULT_FRAME_PATTERN_ID;
+    const raw = localStorage.getItem(EXPORT_EVENTS_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as ExportEvent[]) : [];
   } catch {
-    return DEFAULT_FRAME_PATTERN_ID;
+    return [];
   }
 }
 
-export function savePersonalFramePattern(id: FramePatternId): void {
-  localStorage.setItem(PERSONAL_FRAME_PATTERN_KEY, id);
+export function appendExportEvent(event: ExportEvent): void {
+  const events = loadExportEvents();
+  events.push(event);
+  localStorage.setItem(EXPORT_EVENTS_KEY, JSON.stringify(events));
+}
+
+/** 朝リセットでアーカイブした日付ごとに、その日のうちに一度でもエクスポートが
+ *  使われていたか（E8-06）。アーカイブを作らなかった日（空のキャンバスのまま
+ *  日付が変わった日）はキーごと記録しない——dailyReset.ts参照。 */
+export function loadArchiveExportFlags(): Record<string, boolean> {
+  try {
+    const raw = localStorage.getItem(ARCHIVE_EXPORT_FLAGS_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, boolean>) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function markArchiveExportFlag(dateKey: string, exported: boolean): void {
+  const flags = loadArchiveExportFlags();
+  flags[dateKey] = exported;
+  localStorage.setItem(ARCHIVE_EXPORT_FLAGS_KEY, JSON.stringify(flags));
+}
+
+/** 「指定しなかったメモはサイレント保存されています」という一言ヒント（E2-14）を、
+ *  初回の朝リセット時に既に見せたか。以後は二度と出さないためのフラグ。 */
+export function loadFirstResetHintShown(): boolean {
+  try {
+    return localStorage.getItem(FIRST_RESET_HINT_SHOWN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function markFirstResetHintShown(): void {
+  localStorage.setItem(FIRST_RESET_HINT_SHOWN_KEY, "1");
 }
 
 /** 使い方ページ（円相の由来と基本操作を紹介する読み物）を、既に開いたことが
@@ -190,34 +214,6 @@ export function loadUsageGuideSeen(): boolean {
 
 export function markUsageGuideSeen(): void {
   localStorage.setItem(USAGE_GUIDE_SEEN_KEY, "1");
-}
-
-function isCustomTemplateShaped(value: unknown): value is TemplateDef {
-  if (typeof value !== "object" || value === null) return false;
-  const t = value as Record<string, unknown>;
-  return (
-    typeof t.id === "string" &&
-    typeof t.label === "string" &&
-    typeof t.description === "string" &&
-    typeof t.text === "string"
-  );
-}
-
-/** ユーザーが全画面のテンプレート選択（templatePicker.ts）で作成したテンプレート。 */
-export function loadCustomTemplates(): TemplateDef[] {
-  try {
-    const raw = localStorage.getItem(CUSTOM_TEMPLATES_KEY);
-    if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(isCustomTemplateShaped);
-  } catch {
-    return [];
-  }
-}
-
-export function saveCustomTemplates(templates: TemplateDef[]): void {
-  localStorage.setItem(CUSTOM_TEMPLATES_KEY, JSON.stringify(templates));
 }
 
 /** ヘッダーの「設定」ボタン（settingsMenu.ts）で選ぶテーマ（自動/ライト/ダーク）。

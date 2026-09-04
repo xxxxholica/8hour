@@ -51,37 +51,14 @@ export function circleIntersectsBox(
 }
 
 /** 円（原点中心・半径 radius）の内側に点を丸め込む。 */
-export function clampToCircle(p: Point, radius: number): Point {
-  const d = Math.hypot(p.x, p.y);
-  if (d <= radius) return p;
-  const scale = radius / d;
-  return { x: p.x * scale, y: p.y * scale };
-}
-
-export function isInsideCircle(p: Point, radius: number): boolean {
-  return p.x * p.x + p.y * p.y <= radius * radius;
-}
-
 /**
- * pがclampの境界の内側にあるか。clamp系の関数（clampToCircle等）は境界の内側の点を
- * 値そのまま返す実装になっているため、clamp(p)とpを値比較するだけで内外判定できる
- * （restrictTranslation・clampToGlassesの内側判定と同じイディオム）。
+ * pがclampの境界の内側にあるか。clamp系の関数（clampToRoundedRect等）は境界の
+ * 内側の点を値そのまま返す実装になっているため、clamp(p)とpを値比較するだけで
+ * 内外判定できる（restrictTranslationの内側判定と同じイディオム）。
  */
 export function isInsideClamp(p: Point, clamp: (p: Point) => Point): boolean {
   const clamped = clamp(p);
   return clamped.x === p.x && clamped.y === p.y;
-}
-
-/**
- * 楕円（原点中心・半径rx,ry）の内側に点を丸め込む。原点からpへの向きはそのまま
- * 保ち、その方向の楕円境界までの距離に縮める（clampToCircleのrx=ry=radius版と
- * 同じ考え方の一般化）。
- */
-export function clampToEllipse(p: Point, rx: number, ry: number): Point {
-  const norm = (p.x * p.x) / (rx * rx) + (p.y * p.y) / (ry * ry);
-  if (norm <= 1) return p;
-  const scale = 1 / Math.sqrt(norm);
-  return { x: p.x * scale, y: p.y * scale };
 }
 
 /**
@@ -111,71 +88,10 @@ export function clampToRoundedRect(p: Point, half: number, cornerRadius: number)
 }
 
 /**
- * 眼鏡形状（左右レンズ+ブリッジ、見た目は非凸な1つの輪郭）の内側に点を丸め込む。
- * ブリッジ部分は見た目には連続した1つの輪郭の一部だが、書き込める領域としては
- * 意図的に含めない——左右レンズのどちらかの内側ならpをそのまま返し、それ以外
- * （ブリッジの隙間も含む）は常に近い方のレンズの境界に丸め込む（ユーザー指示：
- * 接合部には書き込めないようにする）。lensClampは単一レンズ（原点中心の
- * ローカル座標）向けのclamp（clampToCircle/clampToEllipse/clampToRoundedRect
- * のいずれか）。centerOffsetは左右レンズ中心の原点からのX距離（正規化単位）。
- */
-export function clampToGlasses(p: Point, lensClamp: (local: Point) => Point, centerOffset: number): Point {
-  const rightLocal: Point = { x: p.x - centerOffset, y: p.y };
-  const leftLocal: Point = { x: p.x + centerOffset, y: p.y };
-  const rightClamped = lensClamp(rightLocal);
-  const leftClamped = lensClamp(leftLocal);
-  const insideRight = rightClamped.x === rightLocal.x && rightClamped.y === rightLocal.y;
-  const insideLeft = leftClamped.x === leftLocal.x && leftClamped.y === leftLocal.y;
-  if (insideRight || insideLeft) return p;
-
-  const candRight: Point = { x: rightClamped.x + centerOffset, y: rightClamped.y };
-  const candLeft: Point = { x: leftClamped.x - centerOffset, y: leftClamped.y };
-  return distance(p, candRight) <= distance(p, candLeft) ? candRight : candLeft;
-}
-
-/**
- * 単一レンズclamp（clampToCircle/clampToEllipse/clampToRoundedRectのいずれか、
- * 原点中心のローカル座標前提）を、指定したcenterへ平行移動して適用する。
- * clampToGlassesと違い「近い方のレンズを選ぶ」判定はしない——呼び出し側で
- * 自分の担当レンズが既に一意に決まっている場合に使う（SMUIのレンズ分割表示、
- * 自分の書き込みを自分のレンズ領域だけに制限する用途）。
- */
-export function clampToOffsetLens(p: Point, lensClamp: (local: Point) => Point, center: Point): Point {
-  const local: Point = { x: p.x - center.x, y: p.y - center.y };
-  const clampedLocal = lensClamp(local);
-  return { x: clampedLocal.x + center.x, y: clampedLocal.y + center.y };
-}
-
-/**
- * clampToGlassesの「近い方を選ぶ」判定を、左右2箇所限定から任意個のレンズへ
- * 一般化したもの。レンズ分割(issue #79)で複数組(眼鏡ペア)が横に並ぶ間、
- * 「自分のレンズに限定せず、いずれかのレンズの範囲内なら許可する」用途に使う
- * （discussion中のマスターの書き込み・voting/resultsの投票・表示、issue
- * #114/#119対応）。lensesは各レンズの中心(center、正規化単位のグローバル座標)と
- * その組の形状に対応するclamp(原点中心のローカル座標前提)の組。
- */
-export function clampToAnyOffsetLens(p: Point, lenses: { center: Point; clamp: (local: Point) => Point }[]): Point {
-  let nearest: Point | null = null;
-  let nearestDist = Infinity;
-  for (const { center, clamp } of lenses) {
-    const local: Point = { x: p.x - center.x, y: p.y - center.y };
-    const clampedLocal = clamp(local);
-    if (clampedLocal.x === local.x && clampedLocal.y === local.y) return p;
-    const candidate: Point = { x: clampedLocal.x + center.x, y: clampedLocal.y + center.y };
-    const d = distance(p, candidate);
-    if (d < nearestDist) {
-      nearestDist = d;
-      nearest = candidate;
-    }
-  }
-  return nearest ?? p;
-}
-
-/**
  * 点群（ストロークを構成する全ての点）を (dx, dy) だけ剛体移動しようとしたとき、
  * 移動後に境界の外へ出る点が1つでもあれば、全ての点が境界内に収まる範囲まで
  * 移動量を比例的に縮める（2分探索）。個々の点を境界へ独立にスナップする
- * （clampToCircle等をmapで適用する）方式は、境界に近い点ほど個別に丸め込まれて
+ * （clampToRoundedRect等をmapで適用する）方式は、境界に近い点ほど個別に丸め込まれて
  * 線全体の形が歪んでしまうため、代わりに移動そのものを制限する
  * ——「ストローク全体が境界内に収まらない移動は行わない」という方針
  * （ユーザー指示）。dx=dy=0、または元々1点も境界内に収まらない状態からの

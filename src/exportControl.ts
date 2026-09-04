@@ -1,3 +1,5 @@
+import { appendExportEvent } from "./storage";
+
 export interface ExportSource {
   createExportImage(): Promise<Blob>;
   getExportText(): string;
@@ -30,14 +32,12 @@ export class ExportSection {
   private statusEl: HTMLElement;
   private pngBtn: HTMLButtonElement;
   private txtBtn: HTMLButtonElement;
-  private getSource: () => ExportSource | null;
+  private getSource: () => ExportSource;
   private onExported?: () => void;
 
-  /** getSourceは、共有(レンズ)タブでルームが未選択の間はnullを返す想定
-   *  ——プレースホルダーの空Storeに対して無警告で空PNG/txtを書き出して
-   *  しまわないよう、runExport側でnullを弾く。onExportedは書き出し成功後に
-   *  設定メニュー自体を閉じるために使う（旧ExportControlのclose()相当）。 */
-  constructor(getSource: () => ExportSource | null, onExported?: () => void) {
+  /** onExportedは書き出し成功後に設定メニュー自体を閉じるために使う
+   *  （旧ExportControlのclose()相当）。 */
+  constructor(getSource: () => ExportSource, onExported?: () => void) {
     this.getSource = getSource;
     this.onExported = onExported;
 
@@ -56,9 +56,8 @@ export class ExportSection {
     row.append(this.pngBtn, this.txtBtn);
     this.element.appendChild(row);
 
-    // 失敗時・ルーム未選択時のエラーだけをここに出す(成功時はダウンロードが
-    // 始まること自体が合図になるため、成功メッセージは出さない——
-    // sharedRoomMenu.tsのstatusElと同じ考え方)。
+    // 失敗時のエラーだけをここに出す(成功時はダウンロードが始まること自体が
+    // 合図になるため、成功メッセージは出さない)。
     this.statusEl = document.createElement("p");
     this.statusEl.className = "export-status";
     this.element.appendChild(this.statusEl);
@@ -75,10 +74,6 @@ export class ExportSection {
 
   private async runExport(kind: "text" | "image"): Promise<void> {
     const source = this.getSource();
-    if (!source) {
-      this.statusEl.textContent = "書き出す前にルームを選択してください";
-      return;
-    }
     this.statusEl.textContent = "";
     this.pngBtn.disabled = true;
     this.txtBtn.disabled = true;
@@ -95,6 +90,9 @@ export class ExportSection {
         const BOM = "﻿";
         download(new Blob([BOM + text], { type: "text/plain;charset=utf-8" }), `ensou-${stamp}.txt`);
       }
+      // コアループの利用実態の計測（E8-06）。ダッシュボード等は持たず、後から
+      // localStorageの中身を直接見て集計する前提のイベントログ（storage.ts参照）。
+      appendExportEvent({ timestamp: Date.now(), kind });
       this.onExported?.();
     } catch (e) {
       this.statusEl.textContent = e instanceof Error ? e.message : "書き出しに失敗しました";

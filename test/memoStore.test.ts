@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { CANVAS_FRAME_SHAPE } from "../src/frameShape";
+import { isInsideClamp } from "../src/geometry";
 import { MemoStore } from "../src/memoStore";
 import type { MemoStyle } from "../src/types";
+
+const canvasClamp = (p: { x: number; y: number }) => CANVAS_FRAME_SHAPE.clamp(p);
 
 // jsdom を使わず、localStorage 相当の最小モックだけ用意する
 class MemoryStorage implements Storage {
@@ -29,8 +33,7 @@ beforeEach(() => {
   (globalThis as unknown as { localStorage: Storage }).localStorage = new MemoryStorage();
 });
 
-const STANDARD: MemoStyle = { tool: "pen", color: "#2f2a26", lifespanDays: null };
-const TODAY: MemoStyle = { tool: "pen", color: "#2f2a26", lifespanDays: 1 };
+const STANDARD: MemoStyle = { tool: "pen", color: "#2f2a26" };
 
 describe("MemoStore", () => {
   it("作成したメモはlocalStorageから復元できる（リロード耐性）", () => {
@@ -39,97 +42,8 @@ describe("MemoStore", () => {
 
     const reloaded = new MemoStore();
     expect(reloaded.getAll()).toHaveLength(1);
-    expect(reloaded.getAll()[0].lifespanDays).toBeNull();
     expect(reloaded.getAll()[0].tool).toBe("pen");
     expect(reloaded.getAll()[0].color).toBe("#2f2a26");
-    expect(reloaded.getAll()[0].traceHistory).toEqual([1000]);
-  });
-
-  it("なぞって復活させるたびにtraceHistoryへ時刻が追記される（タイムライン再現用）", () => {
-    const store = new MemoStore();
-    const memo = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
-    expect(store.getAll()[0].traceHistory).toEqual([0]);
-
-    // クールタイム(寿命7日の10%=0.7日)より十分に間隔を空けて2回なぞる。
-    const oneDay = 24 * 60 * 60 * 1000;
-    const twoDays = 2 * oneDay;
-    store.reviveMemo(memo.id, oneDay);
-    store.reviveMemo(memo.id, twoDays);
-    expect(store.getAll()[0].traceHistory).toEqual([0, oneDay, twoDays]);
-    expect(store.getAll()[0].lastTracedAt).toBe(twoDays);
-  });
-
-  it("7日経過でtickするとstatusがfadedになり、キャンバスから消える", () => {
-    const store = new MemoStore();
-    const memo = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
-
-    const justBefore = 7 * 24 * 60 * 60 * 1000 - 1;
-    store.tick(justBefore);
-    expect(store.getActive()).toHaveLength(1);
-    expect(store.getFaded()).toHaveLength(0);
-
-    const exactly7Days = 7 * 24 * 60 * 60 * 1000;
-    const changed = store.tick(exactly7Days);
-    expect(changed).toBe(true);
-    expect(store.getActive()).toHaveLength(0);
-    expect(store.getFaded()).toHaveLength(1);
-    expect(store.getFaded()[0].id).toBe(memo.id);
-  });
-
-  it("なぞって復活させても1回では寿命の15%ぶんしか猶予が戻らない（無条件のフル回復ではない）", () => {
-    const store = new MemoStore();
-    const memo = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
-
-    const threeDays = 3 * 24 * 60 * 60 * 1000;
-    store.tick(threeDays);
-    expect(store.opacityOf(store.getActive()[0], threeDays)).toBe(0.2);
-
-    // 1回のなぞりでは寿命(7日)の15%ぶん(=1.05日)しか経過時計を戻さないため、
-    // 一段階(0.6)までしか回復しない。
-    store.reviveMemo(memo.id, threeDays);
-    expect(store.opacityOf(store.getActive()[0], threeDays)).toBe(0.6);
-
-    // 復活後はそこから新たに7日でまた消える
-    const afterFirstRevive = store.getActive()[0].lastTracedAt;
-    store.tick(afterFirstRevive + 7 * 24 * 60 * 60 * 1000 - 1);
-    expect(store.getActive()).toHaveLength(1);
-    store.tick(afterFirstRevive + 7 * 24 * 60 * 60 * 1000);
-    expect(store.getActive()).toHaveLength(0);
-  });
-
-  it("クールタイムは無く、同じ時刻でも間を置かず何度でもなぞって復活できる（1日上限がある今、頻度を制限する理由がないため撤廃）", () => {
-    const store = new MemoStore();
-    const memo = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
-    const threeDays = 3 * 24 * 60 * 60 * 1000;
-    store.tick(threeDays);
-
-    store.reviveMemo(memo.id, threeDays);
-    expect(store.opacityOf(store.getActive()[0], threeDays)).toBe(0.6);
-
-    // 同じ時刻で間を置かずもう一度なぞっても、まだ経過時間に余裕があるぶん
-    // そのままもう15%戻り、今回はそれで100%に戻る。
-    store.reviveMemo(memo.id, threeDays);
-    expect(store.opacityOf(store.getActive()[0], threeDays)).toBe(1);
-
-    // 100%表示になった後も、経過時間がまだ0でない間はなぞるたびに「今」へ
-    // 近づき続け、最終的にちょうど「今」に追いつく。
-    store.reviveMemo(memo.id, threeDays);
-    expect(store.getActive()[0].lastTracedAt).toBe(threeDays);
-
-    // 追いついた後にもう一度なぞっても、これ以上経過時間を削れないので変化しない
-    // （クールタイムではなく、単に「戻す先がもう無い」ため）。
-    store.reviveMemo(memo.id, threeDays);
-    expect(store.getActive()[0].lastTracedAt).toBe(threeDays);
-  });
-
-  it("今日中（lifespanDays=1）は24時間で消える", () => {
-    const store = new MemoStore();
-    store.createMemo({ x: 0, y: 0 }, TODAY, 0);
-
-    store.tick(24 * 60 * 60 * 1000 - 1);
-    expect(store.getActive()).toHaveLength(1);
-    store.tick(24 * 60 * 60 * 1000);
-    expect(store.getActive()).toHaveLength(0);
   });
 
   it("resetAllで全メモが消え、以後の読み込みにも影響しない", () => {
@@ -145,132 +59,6 @@ describe("MemoStore", () => {
     expect(reloaded.getAll()).toHaveLength(0);
   });
 
-  it("なぞる1回ぶんの回復量は寿命の15%まで、かつ今を超えて未来にはしない", () => {
-    const store = new MemoStore();
-    // TODAY: lifespanDays=1（24時間）。15%=3.6時間
-    const memo = store.createMemo({ x: 0, y: 0 }, TODAY, 0);
-    const oneDayMs = 24 * 60 * 60 * 1000;
-    const fifteenPercentMs = oneDayMs * 0.15;
-
-    // 半日経過した時点でなぞる：経過時間(12h)は15%ぶん(3.6h)より大きいので、
-    // 15%ぶんそのものが1回の回復量になる。
-    const halfDay = oneDayMs / 2;
-    store.reviveMemo(memo.id, halfDay);
-    expect(store.getActive()[0].lastTracedAt).toBe(fifteenPercentMs);
-
-    const status = store.reviveStatusOf(memo.id, halfDay)!;
-    expect(status.remainingMs).toBe(oneDayMs - (halfDay - fifteenPercentMs));
-  });
-
-  it("経過時間が15%ぶんより短い状態でなぞると、経過時間ぶんしか戻らない（未来の時刻を経過済み扱いにはしない）", () => {
-    const store = new MemoStore();
-    const memo = store.createMemo({ x: 0, y: 0 }, TODAY, 0); // lifespanDays=1（24時間）
-    const oneDayMs = 24 * 60 * 60 * 1000;
-    const tinyElapsed = oneDayMs * 0.05; // 15%より短い経過時間
-
-    store.reviveMemo(memo.id, tinyElapsed);
-    expect(store.getActive()[0].lastTracedAt).toBe(tinyElapsed);
-
-    // 経過時間ぶんだけ戻ってちょうど「今」に追いついたので、同じ時刻で
-    // 再度なぞってもクールタイム中なので変化しない。
-    store.reviveMemo(memo.id, tinyElapsed);
-    expect(store.getActive()[0].lastTracedAt).toBe(tinyElapsed);
-  });
-
-  it("なぞって回復できる回数・頻度に上限はない：間隔を空けても詰めても何度でも復活できる（Issue #11の総量制限は撤廃）", () => {
-    const store = new MemoStore();
-    const memo = store.createMemo({ x: 0, y: 0 }, TODAY, 0); // lifespanDays=1
-    const oneDayMs = 24 * 60 * 60 * 1000;
-
-    // 1日ぶんの間隔を空けてなぞり直すことを20回繰り返す。総量制限もクール
-    // タイムも無いため、いつまでも同じように回復し続けられる。
-    let now = 0;
-    for (let i = 0; i < 20; i++) {
-      now += oneDayMs; // 前回のなぞりから丸1日分の余裕を空ける
-      const before = store.getActive()[0].lastTracedAt;
-      store.reviveMemo(memo.id, now);
-      expect(store.getActive()[0].lastTracedAt).toBeGreaterThan(before);
-    }
-    expect(store.getActive()).toHaveLength(1);
-  });
-
-  it("faded済みメモをreviveMemoしても復活しない（アーカイブは非対話）", () => {
-    const store = new MemoStore();
-    const memo = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
-    store.tick(7 * 24 * 60 * 60 * 1000);
-    expect(store.getFaded()).toHaveLength(1);
-
-    store.reviveMemo(memo.id, 7 * 24 * 60 * 60 * 1000 + 1);
-    expect(store.getActive()).toHaveLength(0);
-    expect(store.getFaded()).toHaveLength(1);
-  });
-
-  describe("nudgeMemoClock（選択道具でメモを掴んで振り回す操作専用）", () => {
-    it("deltaMsぶんlastTracedAtを直接ずらす。負なら経過時間が増える（進める）", () => {
-      const store = new MemoStore();
-      const memo = store.createMemo({ x: 0, y: 0 }, TODAY, 0); // lifespanDays=1（24時間）
-      const fourHoursMs = 4 * 60 * 60 * 1000;
-
-      store.nudgeMemoClock(memo.id, -fourHoursMs);
-      expect(store.getActive()[0].lastTracedAt).toBe(-fourHoursMs);
-      // 4時間経過/24時間 = 1/6 > 1/7(60%へ落ちる境界)なので一段階(0.6)まで進む
-      expect(store.opacityOf(store.getActive()[0], 0)).toBe(0.6);
-    });
-
-    it("正なら「今」に近づく側（復活）", () => {
-      const store = new MemoStore();
-      const memo = store.createMemo({ x: 0, y: 0 }, TODAY, 0);
-      const oneHourMs = 60 * 60 * 1000;
-
-      store.nudgeMemoClock(memo.id, -oneHourMs);
-      store.nudgeMemoClock(memo.id, oneHourMs);
-      expect(store.getActive()[0].lastTracedAt).toBe(0);
-    });
-
-    it("cap・クールタイムは無く、間を置かず何度でも呼べる（1日上限がある今、頻度を制限する理由がないため撤廃）", () => {
-      const store = new MemoStore();
-      const memo = store.createMemo({ x: 0, y: 0 }, TODAY, 0);
-      const oneHourMs = 60 * 60 * 1000;
-
-      store.nudgeMemoClock(memo.id, -oneHourMs);
-      const afterFirst = store.getActive()[0].lastTracedAt;
-      store.nudgeMemoClock(memo.id, -oneHourMs);
-      expect(store.getActive()[0].lastTracedAt).toBe(afterFirst - oneHourMs);
-    });
-
-    it("なぞった履歴（traceHistory）には残さない（振り回しは『なぞった』わけではない）", () => {
-      const store = new MemoStore();
-      const memo = store.createMemo({ x: 0, y: 0 }, TODAY, 0);
-      store.nudgeMemoClock(memo.id, -60 * 60 * 1000);
-      expect(store.getActive()[0].traceHistory).toEqual([0]);
-    });
-
-    it("繰り返して寿命に到達させると、tickでfadedになる", () => {
-      const store = new MemoStore();
-      const memo = store.createMemo({ x: 0, y: 0 }, TODAY, 0); // lifespanDays=1（24時間）
-      const oneHourMs = 60 * 60 * 1000;
-
-      for (let i = 0; i < 25; i++) {
-        store.nudgeMemoClock(memo.id, -oneHourMs);
-      }
-      store.tick(0);
-      expect(store.getActive()).toHaveLength(0);
-      expect(store.getFaded()).toHaveLength(1);
-      expect(store.getFaded()[0].id).toBe(memo.id);
-    });
-
-    it("faded済みメモをnudgeMemoClockしても何も起きない", () => {
-      const store = new MemoStore();
-      const memo = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
-      store.tick(7 * 24 * 60 * 60 * 1000);
-      expect(store.getFaded()).toHaveLength(1);
-
-      store.nudgeMemoClock(memo.id, 60 * 60 * 1000);
-      expect(store.getActive()).toHaveLength(0);
-      expect(store.getFaded()).toHaveLength(1);
-    });
-  });
-
   describe("createTextMemo（テキストメモ）", () => {
     it("テキストメモを作成でき、リロード後も復元される", () => {
       const store = new MemoStore();
@@ -281,7 +69,7 @@ describe("MemoStore", () => {
         24,
         0.5,
         0.1,
-        { color: "#2f2a26", lifespanDays: null },
+        { color: "#2f2a26" },
         1000
       );
       expect(memo.kind).toBe("text");
@@ -300,16 +88,7 @@ describe("MemoStore", () => {
 
     it("テキストメモにはstartStroke/addPointToLastStrokeが効かない（手描き専用の操作のため）", () => {
       const store = new MemoStore();
-      const memo = store.createTextMemo(
-        { x: 0, y: 0 },
-        "note",
-        ["note"],
-        24,
-        0.5,
-        0.1,
-        { color: "#000", lifespanDays: null },
-        0
-      );
+      const memo = store.createTextMemo({ x: 0, y: 0 }, "note", ["note"], 24, 0.5, 0.1, { color: "#000" }, 0);
       store.startStroke(memo.id, { x: 1, y: 1 });
       store.addPointToLastStroke(memo.id, { x: 2, y: 2 });
       const reloaded = store.getAll()[0];
@@ -321,16 +100,7 @@ describe("MemoStore", () => {
 
     it("消しゴムがテキストのボックスに触れるとメモごと削除される（部分削除はしない）", () => {
       const store = new MemoStore();
-      store.createTextMemo(
-        { x: 0, y: 0 },
-        "note",
-        ["note"],
-        24,
-        0.4,
-        0.1,
-        { color: "#000", lifespanDays: null },
-        0
-      );
+      store.createTextMemo({ x: 0, y: 0 }, "note", ["note"], 24, 0.4, 0.1, { color: "#000" }, 0);
       expect(store.getActive()).toHaveLength(1);
 
       const changed = store.eraseAt({ x: 0.05, y: 0 }, 0.02);
@@ -340,16 +110,7 @@ describe("MemoStore", () => {
 
     it("消しゴムがテキストのボックスから離れていれば消えない", () => {
       const store = new MemoStore();
-      store.createTextMemo(
-        { x: 0, y: 0 },
-        "note",
-        ["note"],
-        24,
-        0.4,
-        0.1,
-        { color: "#000", lifespanDays: null },
-        0
-      );
+      store.createTextMemo({ x: 0, y: 0 }, "note", ["note"], 24, 0.4, 0.1, { color: "#000" }, 0);
       const changed = store.eraseAt({ x: 5, y: 5 }, 0.1);
       expect(changed).toBe(false);
       expect(store.getActive()).toHaveLength(1);
@@ -378,16 +139,7 @@ describe("MemoStore", () => {
 
     it("テキストメモは代表座標(x/y)がそのまま平行移動する", () => {
       const store = new MemoStore();
-      const memo = store.createTextMemo(
-        { x: 0.1, y: 0.1 },
-        "note",
-        ["note"],
-        24,
-        0.4,
-        0.1,
-        { color: "#000", lifespanDays: null },
-        0
-      );
+      const memo = store.createTextMemo({ x: 0.1, y: 0.1 }, "note", ["note"], 24, 0.4, 0.1, { color: "#000" }, 0);
 
       store.translateMemo(memo.id, 0.05, -0.02);
 
@@ -396,29 +148,19 @@ describe("MemoStore", () => {
       expect(updated.y).toBeCloseTo(0.08);
     });
 
-    it("円の外に出そうな移動は半径1にクランプされ、円からはみ出さない", () => {
+    it("枠の外に出そうな移動はキャンバスの枠（正方形・角丸）にクランプされ、はみ出さない", () => {
       const store = new MemoStore();
-      const memo = store.createTextMemo(
-        { x: 0.9, y: 0 },
-        "note",
-        ["note"],
-        24,
-        0.4,
-        0.1,
-        { color: "#000", lifespanDays: null },
-        0
-      );
+      const memo = store.createTextMemo({ x: 0.9, y: 0 }, "note", ["note"], 24, 0.4, 0.1, { color: "#000" }, 0);
 
       store.translateMemo(memo.id, 0.5, 0); // (0.9,0) -> (1.4,0) のはずだがクランプされる
 
       const updated = store.getActive()[0];
-      const d = Math.hypot(updated.x, updated.y);
-      expect(d).toBeLessThanOrEqual(1 + 1e-9);
+      expect(isInsideClamp(updated, canvasClamp)).toBe(true);
       expect(updated.x).toBeCloseTo(1);
       expect(updated.y).toBeCloseTo(0);
     });
 
-    it("テキストボックスの端が円をはみ出さない範囲までしか移動しない（箱が枠内に収まる場合）", () => {
+    it("テキストボックスの端が枠をはみ出さない範囲までしか移動しない（箱が枠内に収まる場合）", () => {
       const store = new MemoStore();
       const memo = store.createTextMemo(
         { x: 0.4, y: 0.1 },
@@ -427,11 +169,11 @@ describe("MemoStore", () => {
         24,
         0.4, // boxWidth -> halfW=0.2
         0.1, // boxHeight -> halfH=0.05
-        { color: "#000", lifespanDays: null },
+        { color: "#000" },
         0
       );
 
-      store.translateMemo(memo.id, 0.5, 0); // 中心だけなら(0.9,0)まで動けるが、箱の右端が円をはみ出す
+      store.translateMemo(memo.id, 0.5, 0); // 中心だけなら(0.9,0)まで動けるが、箱の右端が枠をはみ出す
 
       const updated = store.getActive()[0];
       if (updated.kind !== "text") throw new Error("expected text memo");
@@ -444,37 +186,11 @@ describe("MemoStore", () => {
         { x: updated.x + halfW, y: updated.y + halfH },
       ];
       for (const c of corners) {
-        expect(Math.hypot(c.x, c.y)).toBeLessThanOrEqual(1 + 1e-9);
+        expect(isInsideClamp(c, canvasClamp)).toBe(true);
       }
       // 中心点だけをクランプする従来の実装なら中心はx=1まで動けてしまうため、
       // 箱の端を考慮した実装ではそれより手前で止まることを確認する。
       expect(updated.x).toBeLessThan(0.9);
-    });
-
-    it("消滅済み（振り返りビュー）のメモは動かせない", () => {
-      const store = new MemoStore();
-      const memo = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
-      store.tick(7 * 24 * 60 * 60 * 1000);
-      expect(store.getFaded()).toHaveLength(1);
-
-      store.translateMemo(memo.id, 0.5, 0.5);
-
-      const stillFaded = store.getFaded()[0];
-      expect(stillFaded.x).toBe(0);
-      expect(stillFaded.y).toBe(0);
-    });
-
-    it("移動はなぞって復活と無関係：traceHistory/lastTracedAtは変化しない", () => {
-      const store = new MemoStore();
-      const memo = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
-      const before = store.getActive()[0].traceHistory.slice();
-      const beforeTracedAt = store.getActive()[0].lastTracedAt;
-
-      store.translateMemo(memo.id, 0.1, 0.1);
-
-      const updated = store.getActive()[0];
-      expect(updated.traceHistory).toEqual(before);
-      expect(updated.lastTracedAt).toBe(beforeTracedAt);
     });
   });
 
@@ -493,9 +209,7 @@ describe("MemoStore", () => {
       const updated = store.getActive()[0];
       expect(updated.strokes.length).toBeGreaterThanOrEqual(2);
       // 消した場所の近くに点が残っていないこと
-      const anyPointNearCenter = updated.strokes
-        .flat()
-        .some((p) => Math.abs(p.x - 10) < 2);
+      const anyPointNearCenter = updated.strokes.flat().some((p) => Math.abs(p.x - 10) < 2);
       expect(anyPointNearCenter).toBe(false);
     });
 
@@ -508,17 +222,6 @@ describe("MemoStore", () => {
       store.eraseAt({ x: 1, y: 0 }, 100); // 十分大きい半径で全消し
       expect(store.getActive()).toHaveLength(0);
       expect(store.getAll()).toHaveLength(0);
-    });
-
-    it("消滅済み（振り返りビュー）のメモには影響しない", () => {
-      const store = new MemoStore();
-      const memo = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
-      store.addPointToLastStroke(memo.id, { x: 1, y: 0 });
-      store.tick(7 * 24 * 60 * 60 * 1000);
-      expect(store.getFaded()).toHaveLength(1);
-
-      store.eraseAt({ x: 0, y: 0 }, 100);
-      expect(store.getFaded()).toHaveLength(1);
     });
 
     it("何にも触れなければ何も変わらない", () => {
@@ -607,7 +310,7 @@ describe("MemoStore", () => {
       expect(store.undo()).toBe(false);
     });
 
-    it("replaceAllはundo/redoの履歴も破棄する（サーバー側の内容で丸ごと置き換わるため）", () => {
+    it("replaceAllはundo/redoの履歴も破棄する（tutorialSandbox.tsのシナリオ切り替え用）", () => {
       const store = new MemoStore();
       store.snapshotForUndo();
       store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
@@ -634,91 +337,123 @@ describe("MemoStore", () => {
       expect(store.getActive()).toHaveLength(1);
     });
   });
-});
 
-describe("共有キャンバス用のonOp（メモ単位の操作通知、issue #99）", () => {
-  it("createMemoは作成したメモをupsertsとして通知する", () => {
-    const ops: { upserts: { id: string }[]; deletes: string[] }[] = [];
-    const store = new MemoStore(undefined, false, (op) => ops.push(op));
-    const memo = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
+  describe("insertCopy（過去めくり画面のドロップ帯からの持ち越し、E3-03/04）", () => {
+    const JITTER = 0.03; // src/memoStore.tsのCOPY_POSITION_JITTERと同じ値
 
-    expect(ops).toHaveLength(1);
-    expect(ops[0]).toEqual({ upserts: [memo], deletes: [] });
-  });
+    it("形（相対座標）を保ったまま、元のメモと同じ位置（±ランダムオフセット）に配置する", () => {
+      const archived = {
+        id: "memo_archived",
+        kind: "stroke" as const,
+        x: -0.1, // 代表座標は最初のストロークの始点と一致させる（types.tsの規約通り）
+        y: 0,
+        strokes: [
+          [
+            { x: -0.1, y: 0 },
+            { x: 0.1, y: 0 },
+          ],
+        ],
+        createdAt: 100,
+        status: "active" as const,
+        tool: "pen" as const,
+        color: "#000000",
+      };
+      const store = new MemoStore();
+      const copy = store.insertCopy(archived);
 
-  it("メモを編集する操作（追記・移動）は、そのメモをupsertsとして通知する", () => {
-    const ops: { upserts: { id: string }[]; deletes: string[] }[] = [];
-    const store = new MemoStore(undefined, false, (op) => ops.push(op));
-    const memo = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
-    ops.length = 0;
+      expect(copy.kind).toBe("stroke");
+      // ジッターの範囲内（±JITTER）に収まっている
+      expect(Math.abs(copy.x - archived.x)).toBeLessThanOrEqual(JITTER + 1e-9);
+      expect(Math.abs(copy.y - archived.y)).toBeLessThanOrEqual(JITTER + 1e-9);
+      if (copy.kind === "stroke") {
+        // ストローク内の相対的な形（2点間の距離）は変わらない——ジッターは
+        // 全体を平行移動するだけで、形そのものは歪めない
+        const [p0, p1] = copy.strokes[0];
+        expect(p1.x - p0.x).toBeCloseTo(0.2);
+        expect(p1.y - p0.y).toBeCloseTo(0);
+      }
+    });
 
-    store.addPointToLastStroke(memo.id, { x: 0.1, y: 0 });
-    expect(ops).toEqual([{ upserts: [memo], deletes: [] }]);
+    it("新しいid・createdAtを持つ（元のメモとは別物）", () => {
+      const archived = {
+        id: "memo_archived",
+        kind: "stroke" as const,
+        x: 0,
+        y: 0,
+        strokes: [[{ x: 0, y: 0 }, { x: 0.05, y: 0.05 }]],
+        createdAt: 100,
+        status: "active" as const,
+        tool: "pen" as const,
+        color: "#000000",
+      };
+      const store = new MemoStore();
+      const copy = store.insertCopy(archived);
 
-    ops.length = 0;
-    store.translateMemo(memo.id, 0.1, 0.1);
-    expect(ops).toEqual([{ upserts: [memo], deletes: [] }]);
-  });
+      expect(copy.id).not.toBe(archived.id);
+      expect(copy.createdAt).not.toBe(100);
+    });
 
-  it("translateMemoが実際には動けなかった場合（境界一杯など）は通知しない", () => {
-    const ops: unknown[] = [];
-    const store = new MemoStore(undefined, false, (op) => ops.push(op));
-    const memo = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
-    ops.length = 0;
+    it("渡した元のメモ（アーカイブ側）は一切変更しない（複製であって移動ではない）", () => {
+      const archived = {
+        id: "memo_archived",
+        kind: "stroke" as const,
+        x: 0,
+        y: 0,
+        strokes: [[{ x: 0, y: 0 }, { x: 0.05, y: 0.05 }]],
+        createdAt: 100,
+        status: "active" as const,
+        tool: "pen" as const,
+        color: "#000000",
+      };
+      const originalSnapshot = structuredClone(archived);
+      const store = new MemoStore();
+      store.insertCopy(archived);
 
-    store.translateMemo(memo.id, 0, 0); // dx=dy=0なので何も起きない
-    expect(ops).toHaveLength(0);
-  });
+      expect(archived).toEqual(originalSnapshot);
+    });
 
-  it("deleteMemoは削除したIDをdeletesとして通知する。存在しないIDでは通知しない", () => {
-    const ops: { upserts: unknown[]; deletes: string[] }[] = [];
-    const store = new MemoStore(undefined, false, (op) => ops.push(op));
-    const memo = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
-    ops.length = 0;
+    it("元の位置が枠の縁付近でも、ジッターで枠外へはみ出す場合は枠内にクランプされる", () => {
+      // 枠の縁ぎりぎり(x=0.999)に置く——ジッターがどちらへ転んでも、外側へ
+      // 出る側の結果は必ずクランプされる（内側へ転んだ場合はクランプ不要のまま）
+      const archived = {
+        id: "memo_archived",
+        kind: "stroke" as const,
+        x: 0.999,
+        y: 0,
+        strokes: [[{ x: 0.999, y: 0 }, { x: 1.019, y: 0 }]],
+        createdAt: 100,
+        status: "active" as const,
+        tool: "pen" as const,
+        color: "#000000",
+      };
+      const store = new MemoStore();
+      for (let i = 0; i < 20; i++) {
+        const copy = store.insertCopy(archived, canvasClamp);
+        expect(isInsideClamp({ x: copy.x, y: copy.y }, canvasClamp)).toBe(true);
+      }
+    });
 
-    store.deleteMemo("no-such-id");
-    expect(ops).toHaveLength(0);
+    it("複製した結果はlocalStorageにも永続化される", () => {
+      const archived = {
+        id: "memo_archived",
+        kind: "text" as const,
+        x: 0,
+        y: 0,
+        text: "hello",
+        textLines: ["hello"],
+        fontSize: 24,
+        boxWidth: 0.3,
+        boxHeight: 0.1,
+        createdAt: 100,
+        status: "active" as const,
+        color: "#000000",
+      };
+      const store = new MemoStore();
+      store.insertCopy(archived);
 
-    store.deleteMemo(memo.id);
-    expect(ops).toEqual([{ upserts: [], deletes: [memo.id] }]);
-  });
-
-  it("eraseAtは、消え切ったメモはdeletesに、一部だけ消えたメモはupsertsに振り分けて通知する", () => {
-    const ops: { upserts: { id: string }[]; deletes: string[] }[] = [];
-    const store = new MemoStore(undefined, false, (op) => ops.push(op));
-    // 完全に消される予定のメモ(原点付近の1点)
-    const erased = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
-    // 一部だけ消される予定のメモ: 原点の点を消しても、残り2点(半径外)で
-    // ストロークとして生き残るよう3点で作る(eraseFromStrokeは1点だけの
-    // 断片は消え残りとして扱わないため、geometry.ts参照)。
-    const partial = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
-    store.addPointToLastStroke(partial.id, { x: 0.5, y: 0 });
-    store.addPointToLastStroke(partial.id, { x: 0.9, y: 0 });
-    ops.length = 0;
-
-    store.eraseAt({ x: 0, y: 0 }, 0.05);
-
-    expect(ops).toHaveLength(1);
-    expect(ops[0].deletes).toEqual([erased.id]);
-    expect(ops[0].upserts.map((m) => m.id)).toEqual([partial.id]);
-  });
-
-  it("applyRemoteUpsert/applyRemoteDeleteは、取り込んだ内容をonOp/onChangeへ押し戻さない", () => {
-    const ops: unknown[] = [];
-    const changes: unknown[] = [];
-    const store = new MemoStore((memos) => changes.push(memos), false, (op) => ops.push(op));
-    const memo = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
-    ops.length = 0;
-    changes.length = 0;
-
-    store.applyRemoteUpsert({ ...memo, x: 0.5 });
-    expect(store.getAll()[0].x).toBe(0.5);
-    expect(ops).toHaveLength(0);
-    expect(changes).toHaveLength(0);
-
-    store.applyRemoteDelete(memo.id);
-    expect(store.getAll()).toHaveLength(0);
-    expect(ops).toHaveLength(0);
-    expect(changes).toHaveLength(0);
+      const reloaded = new MemoStore();
+      expect(reloaded.getAll()).toHaveLength(1);
+      expect(reloaded.getAll()[0].kind).toBe("text");
+    });
   });
 });

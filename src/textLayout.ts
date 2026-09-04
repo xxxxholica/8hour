@@ -38,17 +38,6 @@ export const FONT_SIZE_STEPS = { small: 18, medium: 24, large: 32 } as const;
 type FontSizeStep = keyof typeof FONT_SIZE_STEPS;
 export const DEFAULT_FONT_SIZE_STEP: FontSizeStep = "medium";
 
-/** テンプレートを置いた瞬間の文字サイズ（基準円でのpx）。道具バーの現在値は
- *  使わず固定する。以前は道具バーの最大ステップ（FONT_SIZE_STEPS.large）
- *  よりもさらに大きい値（50px）にしていたが、「テンプレートの文字が
- *  大きすぎる」という指摘を受け、道具バーの既定「中」（FONT_SIZE_STEPS.medium）
- *  と同じ大きさまで縮小した（ユーザー指示）。 */
-export const TEMPLATE_FONT_SIZE = FONT_SIZE_STEPS.medium;
-
-/** テンプレートを置いた瞬間だけ使う、通常のLINE_HEIGHT_MULTIPLIERより少し
- *  狭い行間（ユーザー指示：テンプレートのみ行間を少し狭くしたい）。 */
-export const TEMPLATE_LINE_HEIGHT_MULTIPLIER = 1.2;
-
 /**
  * 実際の描画半径に応じたフォントサイズ(px)を計算する。線の太さ(toolStyle.ts)と
  * 同じ考え方で、基準円に対する比率でスケールしつつ、下限(MIN_FONT_PX)を必ず守る。

@@ -40,18 +40,16 @@ function customSwatchBackground(hue: number): string {
 
 /**
  * ヘッダー左上に固定表示するアプリのメインメニュー（issue #161）。テーマ・
- * 見た目の設定・テンプレート・使い方・エクスポート、アカウント（ログイン・
- * ログアウト自体はClerkのウィジェットがgetAccountSlot()の枠に描く、main.ts
- * 参照）をここに統合する。各区画は共有ルームメニュー(sharedRoomMenu.ts)と
- * 同じ.shared-menu-section/.shared-section-labelパターンで区切るが、区画数が
+ * 使い方・エクスポートをここに統合する。各区画は
+ * .shared-menu-section/.shared-section-labelパターンで区切るが、区画数が
  * 増えて仕切り線が煩雑になったため、この設定ポップオーバー内に限り
  * 仕切り線(border-top)だけをCSS側で打ち消している（余白は残す）。
  *
  * トリガーはアイコンのみ（ユーザー指示）——「設定」の文字はaria-labelで
  * スクリーンリーダーにだけ伝える。中身がテーマだけでなくアプリ全体の機能
- * （見た目の設定・テンプレート等）へのアクセスを含む「アプリ全体のメニュー」
- * になっているため、アイコンは設定を意味する歯車ではなく、メニュー全般を
- * 意味する三本線(ハンバーガー)にしている（Claude風、ユーザー指示）。
+ * へのアクセスを含む「アプリ全体のメニュー」になっているため、アイコンは
+ * 設定を意味する歯車ではなく、メニュー全般を意味する三本線(ハンバーガー)に
+ * している（Claude風、ユーザー指示）。
  *
  * 以前は各タブの操作列（ツールバーの真上）にあり、タブ切り替えのたび
  * moveTo()でDOM上の置き場所を動かしていたが、画面の真ん中寄りで見つけ
@@ -84,21 +82,6 @@ export class SettingsMenu {
    *  バーを動かすたびcustomSwatchBackground()で背景色を更新する
    *  （ユーザー指摘：バーで色を変えてもスワッチの見た目が追従していなかった）。 */
   private customSwatchBtn!: HTMLButtonElement;
-  private accountSlot!: HTMLElement;
-  /** 「見た目の設定」区画の器(issue #154)。以前は個人・共有各タブの操作列に
-   *  独立ボタン(FrameColorSelector/AppearanceSelector)として置かれていたが、
-   *  設定メニューへ統合した——テーマ区画と使い方区画の間（ユーザー指示）。
-   *  このクラス自身は中身(柄・形のピッカー)を持たず、main.tsが個人用・共有用
-   *  それぞれの中身をここへ差し込み、タブ切り替えのたびhiddenで出し分ける。 */
-  private appearanceSlot!: HTMLElement;
-
-  private onOpenTemplatePicker: () => void;
-  /** 「テンプレート」区画本体。共有タブでは出さない（issue #79ユーザー指示：
-   *  テンプレート挿入は個人キャンバス専用で、選ぶ画面自体もタブ切り替え不可の
-   *  全画面の幕のため、開いた時点のタブが「今表示中の画面」として固定される）
-   *  ため、main.ts側のsetView()からsetTemplateSectionVisible()経由で
-   *  画面切り替えのたび出し分ける。 */
-  private templateSection!: HTMLElement;
 
   constructor(
     container: HTMLElement,
@@ -106,13 +89,11 @@ export class SettingsMenu {
     initialCustomHue: number,
     onThemeChange: (pref: ThemePreference) => void,
     onCustomHueChange: (hue: number) => void,
-    getExportSource: () => ExportSource | null,
-    onOpenTemplatePicker: () => void
+    getExportSource: () => ExportSource
   ) {
     this.theme = initialTheme;
     this.onThemeChange = onThemeChange;
     this.onCustomHueChange = onCustomHueChange;
-    this.onOpenTemplatePicker = onOpenTemplatePicker;
 
     this.anchor = document.createElement("div");
     this.anchor.className = "icon-anchor";
@@ -146,7 +127,10 @@ export class SettingsMenu {
     themeLabel.textContent = "テーマ";
     themeSection.appendChild(themeLabel);
     const themeRow = document.createElement("div");
-    themeRow.className = "toolbar-pill";
+    // .toolbar-pillの箱の見た目に、.theme-swatch-row（style.css）でこの行専用の
+    // 間隔・ボタンサイズ（テーマは数秒に一度選ぶだけの大きめのタップ対象でよい）を
+    // 上書きする。
+    themeRow.className = "toolbar-pill theme-swatch-row";
     for (const pref of THEME_ORDER) {
       const btn = document.createElement("button");
       btn.type = "button";
@@ -206,11 +190,8 @@ export class SettingsMenu {
 
     this.popover.appendChild(themeSection);
 
-    this.popover.appendChild(this.buildAppearanceSection());
-    this.popover.appendChild(this.buildTemplateSection());
     this.popover.appendChild(this.buildUsageSection());
     this.popover.appendChild(new ExportSection(getExportSource, () => this.close()).element);
-    this.popover.appendChild(this.buildAccountSection());
 
     this.anchor.appendChild(this.popover);
     container.appendChild(this.anchor);
@@ -218,58 +199,7 @@ export class SettingsMenu {
     this.syncTheme();
   }
 
-  /** 「見た目の設定」区画(issue #154)。中身(柄・形のピッカー)は個人・共有
-   *  タブで異なる(FrameColorSelector相当/AppearanceSelector)ため、このクラス
-   *  自身は持たず、main.tsがgetAppearanceSlot()経由で差し込む——テンプレート
-   *  区画と同じ、置き場所だけを提供するパターン。区画自体の見出し(「見た目の
-   *  設定」)は付けない——差し込まれる中身自身が「フレームの形」「フレームの
-   *  色」という自分の見出しを既に持っており、二重に見えて冗長だったため
-   *  （ユーザー指摘）。 */
-  private buildAppearanceSection(): HTMLElement {
-    const section = document.createElement("div");
-    section.className = "shared-menu-section";
-
-    this.appearanceSlot = document.createElement("div");
-    section.appendChild(this.appearanceSlot);
-    return section;
-  }
-
-  /** buildAppearanceSection()の器。main.tsが個人用・共有用それぞれの中身を
-   *  ここへ差し込み、タブ切り替えのたびhiddenで出し分ける(main.tsのsetView
-   *  参照)。 */
-  getAppearanceSlot(): HTMLElement {
-    return this.appearanceSlot;
-  }
-
-  /** 「＋テンプレートを使用」（全画面のテンプレート選択、templatePicker.ts）を開く。
-   *  空キャンバス中央の案内・道具バーと、目立たせる位置をいくつか試した末に、
-   *  常設の操作というより頻度の低い呼び出しとして設定メニューへ落ち着けた
-   *  （ユーザー指示）。テーマ行・使い方と同じ.shared-menu-section/
-   *  .shared-section-labelパターンで区切る。 */
-  private buildTemplateSection(): HTMLElement {
-    const section = document.createElement("div");
-    section.className = "shared-menu-section";
-    const label = document.createElement("div");
-    label.className = "shared-section-label";
-    label.textContent = "テンプレート";
-    section.appendChild(label);
-
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "pill-btn settings-template-btn";
-    btn.textContent = "テンプレートを使用";
-    btn.addEventListener("click", () => {
-      this.close();
-      this.onOpenTemplatePicker();
-    });
-    section.appendChild(btn);
-    this.templateSection = section;
-    return section;
-  }
-
   /** ヘッダーに独立してあった「使い方」ボタン（main.ts）をここに統合。
-   *  再視聴時はonCloseを渡さない＝閉じた後にテンプレート選択へは続かない
-   *  （main.ts側の初回フローと同じopenUsageGuideをただ呼ぶだけ）。
    *  テーマ行と左右の余白が揃うよう、幅いっぱいに広げる（ユーザー指示）。 */
   private buildUsageSection(): HTMLElement {
     const section = document.createElement("div");
@@ -289,38 +219,6 @@ export class SettingsMenu {
     });
     section.appendChild(btn);
     return section;
-  }
-
-  /** アカウント区画。ヘッダー独立だったClerkウィジェット（account-slot）を
-   *  ここへ丸ごと移設する——このクラス自身はClerkの詳細を知らず、
-   *  clerkAccount.tsのmountAccountWidget()が実際の中身（未ログイン時の
-   *  ログインボタン／ログイン中のユーザーアイコン・メニュー）を後から
-   *  このスロットへ描き込む（main.ts参照）。 */
-  private buildAccountSection(): HTMLElement {
-    const section = document.createElement("div");
-    section.className = "shared-menu-section";
-    const label = document.createElement("div");
-    label.className = "shared-section-label";
-    label.textContent = "アカウント";
-    section.appendChild(label);
-
-    this.accountSlot = document.createElement("div");
-    this.accountSlot.className = "settings-account-slot";
-    section.appendChild(this.accountSlot);
-
-    return section;
-  }
-
-  /** mountAccountWidget()の描画先。main.ts側で、このインスタンスの生成後に呼ぶ。 */
-  getAccountSlot(): HTMLElement {
-    return this.accountSlot;
-  }
-
-  /** 共有タブでは「テンプレート」区画を出さない（issue #79ユーザー指示）。
-   *  設定メニュー自体はキャンバス・共有どちらのタブからも開けるため、
-   *  main.tsのsetView()から画面切り替えのたび呼んで出し分ける。 */
-  setTemplateSectionVisible(visible: boolean): void {
-    this.templateSection.hidden = !visible;
   }
 
   private toggle(): void {

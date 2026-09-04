@@ -2,45 +2,48 @@ import { describe, expect, it } from "vitest";
 import {
   circleIntersectsBox,
   clampBoxCenter,
-  clampToCircle,
-  clampToGlasses,
+  clampToRoundedRect,
   eraseFromStroke,
-  isInsideCircle,
+  isInsideClamp,
   pointNearStroke,
   pointNearStrokes,
   pointToSegmentDistance,
 } from "../src/geometry";
 
-describe("clampToCircle", () => {
-  it("円内の点はそのまま", () => {
-    expect(clampToCircle({ x: 10, y: 10 }, 100)).toEqual({ x: 10, y: 10 });
+describe("clampToRoundedRect（キャンバスの枠：正方形・角丸）", () => {
+  const roundedClamp = (p: { x: number; y: number }) => clampToRoundedRect(p, 1, 0.3);
+
+  it("枠の内側の点はそのまま", () => {
+    expect(clampToRoundedRect({ x: 0.1, y: 0.1 }, 1, 0.3)).toEqual({ x: 0.1, y: 0.1 });
   });
 
-  it("円外の点は境界上に丸め込まれる", () => {
-    const p = clampToCircle({ x: 200, y: 0 }, 100);
-    expect(p.x).toBeCloseTo(100);
-    expect(p.y).toBeCloseTo(0);
-    expect(isInsideCircle(p, 100)).toBe(true);
+  it("辺の直線部分の外側は、その辺へ素直にクランプされる（角の丸め込みではない軸）", () => {
+    // inner = half - cornerRadius = 0.7。y=0（|y|<=inner）は直線の辺に近いので、
+    // x方向だけが辺(half=1)にクランプされる。
+    const p = clampToRoundedRect({ x: 2, y: 0 }, 1, 0.3);
+    expect(p).toEqual({ x: 1, y: 0 });
   });
 
-  it("斜め方向でも半径ちょうどに収まる", () => {
-    const p = clampToCircle({ x: 300, y: 400 }, 100);
-    expect(Math.hypot(p.x, p.y)).toBeCloseTo(100);
+  it("角の外側の点は、角の丸め半径の弧上に丸め込まれる", () => {
+    const p = clampToRoundedRect({ x: 2, y: 2 }, 1, 0.3);
+    expect(isInsideClamp(p, roundedClamp)).toBe(true);
+    // 角の中心(0.7, 0.7)からの距離がちょうどcornerRadius(0.3)になる。
+    expect(Math.hypot(p.x - 0.7, p.y - 0.7)).toBeCloseTo(0.3);
   });
 });
 
 describe("clampBoxCenter（テキストメモを新規に置く瞬間、箱の端が枠外に出ないようにする）", () => {
-  const circleClamp = (p: { x: number; y: number }) => clampToCircle(p, 1);
+  const roundedClamp = (p: { x: number; y: number }) => clampToRoundedRect(p, 1, 0.3);
 
   it("箱が完全に収まる位置ならそのまま", () => {
-    const p = clampBoxCenter({ x: 0.2, y: 0.1 }, 0.2, 0.05, circleClamp);
+    const p = clampBoxCenter({ x: 0.2, y: 0.1 }, 0.2, 0.05, roundedClamp);
     expect(p).toEqual({ x: 0.2, y: 0.1 });
   });
 
   it("境界近くをタップすると、箱の四隅すべてが境界内に収まる位置まで中心が引き寄せられる", () => {
     const halfW = 0.2;
     const halfH = 0.05;
-    const p = clampBoxCenter({ x: 0.95, y: 0 }, halfW, halfH, circleClamp);
+    const p = clampBoxCenter({ x: 0.95, y: 0 }, halfW, halfH, roundedClamp);
 
     const corners = [
       { x: p.x - halfW, y: p.y - halfH },
@@ -49,7 +52,7 @@ describe("clampBoxCenter（テキストメモを新規に置く瞬間、箱の�
       { x: p.x + halfW, y: p.y + halfH },
     ];
     for (const c of corners) {
-      expect(Math.hypot(c.x, c.y)).toBeLessThanOrEqual(1 + 1e-9);
+      expect(isInsideClamp(c, roundedClamp)).toBe(true);
     }
     // 中心点だけをクランプする従来の実装ならx=0.95のまま(タップ位置をそのまま採用)
     // になってしまうため、箱の端を考慮してそれより手前に寄ることを確認する。
@@ -57,7 +60,7 @@ describe("clampBoxCenter（テキストメモを新規に置く瞬間、箱の�
   });
 
   it("原点に置いても収まりきらないほど巨大な箱は、原点（最善位置）に置かれる", () => {
-    const p = clampBoxCenter({ x: 0.5, y: 0.5 }, 5, 5, circleClamp);
+    const p = clampBoxCenter({ x: 0.5, y: 0.5 }, 5, 5, roundedClamp);
     expect(p).toEqual({ x: 0, y: 0 });
   });
 });
@@ -73,7 +76,7 @@ describe("pointToSegmentDistance", () => {
   });
 });
 
-describe("pointNearStroke / pointNearStrokes（なぞって復活のヒット判定）", () => {
+describe("pointNearStroke / pointNearStrokes（手描きメモの当たり判定）", () => {
   const stroke = [
     { x: 0, y: 0 },
     { x: 10, y: 0 },
@@ -135,50 +138,7 @@ describe("eraseFromStroke（消しゴム）", () => {
   });
 });
 
-describe("clampToGlasses（眼鏡形状=左右レンズの和集合、ブリッジは書き込み不可）", () => {
-  const centerOffset = 1.3;
-  const clamp = (p: { x: number; y: number }) => clampToGlasses(p, (local) => clampToCircle(local, 1), centerOffset);
-
-  it("右レンズの内側の点はそのまま", () => {
-    expect(clamp({ x: centerOffset + 0.1, y: 0 })).toEqual({ x: centerOffset + 0.1, y: 0 });
-  });
-
-  it("左レンズの内側の点はそのまま", () => {
-    expect(clamp({ x: -centerOffset - 0.1, y: 0 })).toEqual({ x: -centerOffset - 0.1, y: 0 });
-  });
-
-  it("ブリッジ（レンズの間）は書き込めない領域: 最も近いレンズの境界に丸め込まれる", () => {
-    const p = clamp({ x: 0, y: 0.1 });
-    expect(p).not.toEqual({ x: 0, y: 0.1 });
-    expect(Math.hypot(Math.abs(p.x) - centerOffset, p.y)).toBeCloseTo(1, 5);
-  });
-
-  it("右レンズの外側の点は円周上に丸め込まれる", () => {
-    const p = clamp({ x: centerOffset + 5, y: 0 });
-    expect(Math.hypot(p.x - centerOffset, p.y)).toBeCloseTo(1);
-  });
-
-  it("両レンズの外側の点は、最も近い方のレンズの境界に丸め込まれる", () => {
-    const p = clamp({ x: 0, y: 5 });
-    expect(p.y).toBeLessThan(5);
-    expect(Math.hypot(Math.abs(p.x) - centerOffset, p.y)).toBeCloseTo(1, 5);
-  });
-
-  it("クランプ結果は常にいずれかのレンズの内側（クランプの冪等性）", () => {
-    const samples = [
-      { x: 0, y: 0.5 },
-      { x: 3, y: 3 },
-      { x: -3, y: -3 },
-      { x: 0.5, y: 1 },
-    ];
-    for (const p of samples) {
-      const clamped = clamp(p);
-      expect(clamp(clamped)).toEqual(clamped);
-    }
-  });
-});
-
-describe("circleIntersectsBox（テキストメモの当たり判定: なぞって復活・消しゴム）", () => {
+describe("circleIntersectsBox（テキストメモの当たり判定: 消しゴム）", () => {
   const box = { x: 0, y: 0, width: 10, height: 4 };
 
   it("矩形の内側なら重なっている", () => {

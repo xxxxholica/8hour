@@ -70,6 +70,14 @@
      2段階で共有している。 */
   --shadow-card: 0 1px 2px var(--ink-08), 0 4px 14px var(--ink-06);
   --shadow-popover: 0 2px 6px var(--ink-08), 0 18px 48px var(--ink-12);
+  /* --- キャンバス（.circle-canvas/.archive-canvas）を紙の輪郭に沿って
+     浮かせる控えめな影（枠線の代わり、ユーザー指示）。filter:drop-shadow()は
+     box-shadowと違いカンマ区切りの複数指定を1つの関数にまとめられない
+     ため、--shadow-cardと同じ2枚重ねの考え方をdrop-shadow()の連結で表す
+     専用のトークンにする。box-shadowより一段弱め（近距離をさらに薄く、
+     遠距離も控えめなぼかしに留める）にして、強すぎる/大きすぎる影に
+     ならないようにしている。 --- */
+  --canvas-shadow: drop-shadow(0 1px 1px var(--ink-06)) drop-shadow(0 2px 6px var(--ink-08));
 }
 
 /* --- ダークテーマ（settingsMenu.tsの「設定」ボタン内、テーマ切り替え機能。
@@ -366,27 +374,20 @@ body {
   justify-content: center;
 }
 
-/* --- 操作パネルの中で、道具バー（キャンバス表示中）とシークバー（振り返り表示中）が
-   共有するスロット。display: contentsにして、このdiv自体は箱を持たないようにし、
-   中身（.toolbarまたは.seekbar）を.control-panelの直接の子と同じ扱いで
-   横並びさせている。以前はこのスロット自体がflex:1で余った幅を引き受けて
-   伸びていたため、中の.toolbar（ツール選択＋ツールの詳細ブロック）と
-   #duration-slot（時間選択ブロック）の間の余白だけが、.toolbar内の
-   ブロック同士の間隔より広くなってしまっていた（中身が伸びた分の余白が
-   右側にできるため）。display: contentsにすることで、ブロック同士の間隔は
-   すべて.control-panelのcolumn-gapだけで決まり、均等になる
-   （ユーザー指示：3ブロックの間隔を揃えたい）。 --- */
+/* --- 操作パネルの中で道具バーを収める器。display: contentsにして、この
+   div自体は箱を持たないようにし、中身（.toolbar）を.control-panelの
+   直接の子と同じ扱いで横並びさせている（ユーザー指示：ブロックの間隔を
+   揃えたい）。 --- */
 #primary-slot {
   display: contents;
 }
 
-/* --- スマホ幅で色/消しゴムサイズ・振り返りシークバーを一行展開するための
-   ハンドルと器。デスクトップ幅ではどちらも見た目に影響しないようにしておく
-   （ユーザー指示：常時展開のままでよい）——ハンドルは非表示、器は
-   #primary-slotと同じdisplay:contentsで自分自身の箱を持たず、
-   #primary-slot/#duration-slotがこれまで通り.control-panelの直接の子として
-   振る舞う。実際にグリッドの器として働くのは@media (max-width: 480px)の
-   中だけ（controlPanelDrawer.ts参照）。 --- */
+/* --- スマホ幅で色/消しゴムサイズを一行展開するためのハンドルと器。
+   デスクトップ幅ではどちらも見た目に影響しないようにしておく（ユーザー
+   指示：常時展開のままでよい）——ハンドルは非表示、器は#primary-slotと
+   同じdisplay:contentsで自分自身の箱を持たず、#primary-slotがこれまで
+   通り.control-panelの直接の子として振る舞う。実際にグリッドの器として
+   働くのは@media (max-width: 480px)の中だけ（controlPanelDrawer.ts参照）。 --- */
 .control-panel-handle {
   display: none;
 }
@@ -395,21 +396,126 @@ body {
   display: contents;
 }
 
-/* --- 共有タブでは振り返りシークバーを表示しない（main.ts setView参照、
-   個人キャンバス専用の機能のため）。以前はopacityだけをフェードさせて
-   レイアウト上の場所（幅）はそのまま残していたため、共有タブでは色/
-   消しゴムサイズブロックの隣に何も無い空白ができてしまっていた
-   （ユーザー指摘）。display:noneでレイアウトからも外し、空いた分は
-   色/消しゴムサイズブロック側に回す（デスクトップは.control-panelの
-   flexが自然に詰めて中央寄せし直す、モバイルは.toolbar-detailsの
-   grid-columnをここで広げる——下のモバイル用ブロック参照）。 --- */
-body[data-view="shared"] #duration-slot {
-  display: none;
-}
-
+/* --- 枠線を持たない代わり、紙の実際の輪郭（角丸の正方形）に沿って
+   drop-shadowで控えめに浮かせる（ユーザー指示）。box-shadowと違い、
+   要素の矩形ではなく実際に描画された不透明ピクセルの形に沿うため、
+   角丸の輪郭どおりの影になる。 --- */
 .circle-canvas {
   display: block;
   cursor: crosshair;
+  filter: var(--canvas-shadow);
+}
+
+/* --- 過去めくり画面の左側（archiveCanvas.ts）。読み取り専用でメモを掴んで
+   ドラッグして持ち出すだけなので、書き込み系の道具を示すcrosshairではなく
+   つかめることを示すgrabにする。影は.circle-canvasと同じ値
+   （--canvas-shadow）を使い、通常表示・過去閲覧表示で見た目を揃える
+   （ユーザー指示）。 --- */
+.archive-canvas {
+  display: block;
+  cursor: grab;
+  filter: var(--canvas-shadow);
+}
+
+.archive-canvas:active {
+  cursor: grabbing;
+}
+
+/* --- 過去めくり画面の「前の日」「次の日」タブ（main.ts #history-back-tab/
+   #history-forward-tab）。画面中央左・中央右に左右対称でposition:fixed
+   固定表示する——.app-header/.app-footerと違い画面上端・下端の帯ではなく、
+   常時同じ場所（垂直方向の中央）に留まる独立した丸ボタンのため、
+   z-indexもヘッダー(11)・フッター(10)と重ならない近い値にして、
+   帯の下に隠れたり帯の上を覆ったりしないようにする。 --- */
+.history-edge-tab {
+  position: fixed;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-full);
+  background: var(--paper-2);
+  box-shadow: var(--shadow-card);
+  color: var(--ink-70);
+  font-size: var(--text-lg);
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color var(--duration-fast) ease, opacity var(--duration-fast) ease;
+}
+
+.history-edge-tab:hover {
+  background: var(--paper-3);
+}
+
+.history-edge-tab-left {
+  left: calc(var(--space-4) + env(safe-area-inset-left, 0px));
+}
+
+.history-edge-tab-right {
+  right: calc(var(--space-4) + env(safe-area-inset-right, 0px));
+}
+
+/* 「進む」は今日を見ている間（historyOffset===0）はこれ以上進めないため
+   disabled——グレーアウトして操作不可であることを見た目でも伝える。 */
+.history-edge-tab:disabled {
+  opacity: 0.35;
+  cursor: default;
+  pointer-events: none;
+}
+
+/* --- 過去めくり画面本体（main.ts #history-view）。#canvas-panelと同じ
+   考え方でflex:1いっぱいに広げる。#archive-canvas-wrapを唯一のflex子要素
+   にし、.history-nav（日付ラベル）はposition:absoluteのオーバーレイとして
+   flexの並びから外す——#canvas-info-row（残り時間ピル）が#canvas-wrapの
+   フレックス計算に影響を与えないのと同じ考え方。もし.history-navをflexの
+   並びに含めてしまうと、その分だけ#archive-canvas-wrapの高さが#canvas-wrap
+   より狭くなり、canvasSizing.tsが同じロジックで計算しても通常表示より
+   小さいキャンバスになってしまう（実測で確認したレイアウト崩れ）。 --- */
+.history-view {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+}
+
+/* 上部の帯（.app-header、position:fixed）の真下に来る位置なので、実測した
+   ヘッダーの高さ（--app-header-height、main.tsがResizeObserverで追従）ぶん
+   だけ下げる——.app-headerはpointer-eventsを持つ透明な帯のため、それより
+   上に置くとタップを奪われてしまう。ラベル1つだけで操作を持たないため
+   pointer-eventsは持たせず、下のアーカイブキャンバスへのドラッグ操作を
+   妨げないようにする。 */
+.history-nav {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1;
+  padding-top: calc(var(--app-header-height, 60px) + var(--space-2));
+  padding-bottom: var(--space-2);
+  text-align: center;
+  pointer-events: none;
+}
+
+.history-date-label {
+  font-size: var(--text-md);
+  font-weight: 500;
+  color: var(--ink-70);
+}
+
+.archive-canvas-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* --- テキスト入力オーバーレイ。円のクリップ外に出しても構わないよう画面固定で、
@@ -576,51 +682,11 @@ body[data-view="shared"] #duration-slot {
   column-gap: var(--space-5);
 }
 
-/* --- 画面切り替え（キャンバス／共有）。ヘッダー左側に置く。
-   道具・色・テンプレートといった「選んだ画面の中でのツール操作」とは役割が違うため、
-   下の操作パネル(.control-panel)ではなくヘッダーに分けている。
-   以前は文字だけ＋不透明度差の簡素な見た目だったが、2択のトグルだと
-   分かりやすい長方形のスイッチ（セグメントコントロール）に変えた
-   （ユーザー指示）。外枠が背景を持ち、選択中の側だけさらに濃い背景で
-   浮き上がる。 --- */
-
-.view-nav {
-  display: flex;
-  gap: 0.125rem;
-  padding: 0.1875rem;
-  background: var(--paper-1);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-card);
-  flex: none;
-}
-
-.view-nav-btn {
-  appearance: none;
-  border: none;
-  background: none;
-  font: inherit;
-  font-size: var(--text-sm);
-  font-weight: 500;
-  color: var(--ink-55);
-  cursor: pointer;
-  padding: 0.3125rem 0.875rem;
-  border-radius: 6px;
-  transition: background-color 0.15s ease, color 0.15s ease;
-}
-
-.view-nav-btn[data-active="true"] {
-  background: var(--paper-3);
-  color: var(--ink-95);
-  font-weight: 600;
-}
-
 /* --- 道具バー：ツール選択ブロック（左）とツールの詳細ブロック（中央）に分けている。
    .toolbar-tools（左）＝道具アイコンとテンプレートを1列（.toolbar-pill）にまとめ、
    すべて同じ大きさ（.toolbar-btn）で揃えたもの。「何をするか」という操作の並びを
    1ブロックにしている（ユーザー指示）。.toolbar-details（中央）＝色・文字サイズ
-   という選んだ道具の"詳細"設定。振り返りスライダー（RewindSelector）はこの
-   Toolbarの外、#duration-slotに別途並ぶ。画面切り替えナビをヘッダーへ移した分
-   フッターの横幅に余裕ができたため、以前は道具アイコンの上にposition: absoluteで
+   という選んだ道具の"詳細"設定。以前は道具アイコンの上にposition: absoluteで
    浮かせていた詳細ブロックを通常のフローに戻し、ブロックを横に並べるだけで1行に収まる。
    3ブロックとも.control-block（枠線付きの区画）を併用し、構造だけでなく見た目でも
    はっきり3つに分かれているのが分かるようにしている（ユーザー指示）。 --- */
@@ -644,6 +710,20 @@ body[data-view="shared"] #duration-slot {
   gap: 0.375rem;
 }
 
+/* --- 設定メニューのテーマ選択行だけ、間隔は詰めてボタン自体を大きくする
+   （ユーザー指示：間隔を小さくする代わりに選択するボタンを大きく）。
+   ツールバー下部の色スワッチ（.toolbar-swatch、道具として頻繁に押す小さな
+   ボタン）とは用途が違い、テーマは数秒に一度選ぶだけの大きめのタップ対象で
+   よいため、この行の中でだけサイズを上書きする。 --- */
+.theme-swatch-row {
+  gap: var(--space-2);
+}
+
+.theme-swatch-row .toolbar-swatch {
+  width: 2.5rem;
+  height: 2.5rem;
+}
+
 /* --- 中央ブロック：色スウォッチ・文字サイズ。実際の見た目（.control-block）と
    横並びレイアウトは内側の.toolbar-details-cardが持つ（toolbar.ts参照）——
    .toolbar-details自身はモバイル幅でグリッドの1マスとして0まで縮む素の器。 --- */
@@ -656,13 +736,12 @@ body[data-view="shared"] #duration-slot {
 .toolbar-details-card {
   /* 幅を中身任せにすると、消しゴムの大きさボタン(3個)と色スウォッチ(4個)を
      行き来するたびに（大きさが微妙に違うせいで）ブロックの横幅がガタガタ
-     動いてしまう（ユーザー指摘）。振り返りシークバー側（.duration-seekbar）と
-     揃えて固定幅にすることで、道具によらず幅が変わらないようにし、同時に
-     2ブロックの横幅比を1:1にする（ユーザー指示）。固定pxだと画面幅が
-     違う端末ごとに見え方がまちまちになる（ユーザー指摘）ため、他の余白と
-     同じくclamp(最小, 画面幅に連動する値, 最大)にする——最小・最大とも
-     両方の中身（スウォッチ4個・消しゴムボタン3個・シークバーのラベル+
-     スライダー）のうち最大のものが余裕をもって収まる範囲。 */
+     動いてしまう（ユーザー指摘）。固定幅にすることで、道具によらず幅が
+     変わらないようにする（ユーザー指示）。固定pxだと画面幅が違う端末ごとに
+     見え方がまちまちになる（ユーザー指摘）ため、他の余白と同じく
+     clamp(最小, 画面幅に連動する値, 最大)にする——最小・最大とも両方の中身
+     （スウォッチ4個・消しゴムボタン3個）のうち最大のものが余裕をもって
+     収まる範囲。 */
   width: clamp(150px, 15vw, 200px);
   justify-content: center;
   display: flex;
@@ -671,21 +750,18 @@ body[data-view="shared"] #duration-slot {
   white-space: nowrap;
 }
 
-/* --- 下部バーの3ブロック（ツール選択／ツールの詳細／時間選択、振り返り表示中は
-   シークバーの.seekbarも同じ扱い）に共通の、背景・枠線付きの区画。
-   ブロック同士の間隔だけでは「まとまり」が伝わりにくかったため、構造上の
+/* --- 下部バーのブロック（ツール選択／ツールの詳細）に共通の、背景・枠線付きの
+   区画。ブロック同士の間隔だけでは「まとまり」が伝わりにくかったため、構造上の
    ブロック分けを見た目にもそのまま出るようにしている（ユーザー指示：視覚的にも
-   3つのブロックに分かれているのが分かるようにしたい／各ブロックに背景色を
-   つけてほしい）。背景色は、以前この3ブロックをまとめて1枚のカードにしていた
-   ときの色と影をそのまま個々のブロックに持たせたもの——道具選択中のハイライト
+   分かれているのが分かるようにしたい／各ブロックに背景色をつけてほしい）。
+   背景色は、以前この複数ブロックをまとめて1枚のカードにしていたときの色と
+   影をそのまま個々のブロックに持たせたもの——道具選択中のハイライト
    （.toolbar-btnのdata-active時の背景、こちらの方が少し濃い）とは明度差が
    あるので、選択状態はブロックの背景の上でもちゃんと見分けがつく。
-   heightは、時間選択ブロック・振り返りのシークバー（ラベルをスライダーの上に
-   置く縦積みで、3ブロックの中で最も内容が高くなる）が余裕を持って収まる高さ。
    min-heightではなくheightを固定値にしているのは、min-heightだと中身が
    それを上回るブロックだけ実際にはさらに高くなってしまい、ブロックごとに
    高さが揃わなかったため（ユーザー指示：すべてのブロックの縦幅を同じにしたい）。
-   ツール選択・ツールの詳細ブロックのように中身がこれより低いブロックは、
+   ツール選択ブロックのように中身がこれより低いブロックは、
    align-items/justify-content:centerで中身を上下中央に収める。 --- */
 .control-block {
   padding: var(--space-2) var(--space-4);
@@ -696,40 +772,24 @@ body[data-view="shared"] #duration-slot {
   box-shadow: var(--shadow-card);
 }
 
-/* --- スマホ幅では、3ブロック（ツール選択／ツールの詳細／時間選択）が1行に
-   絶対に収まらない（ユーザー報告：3ブロック目が画面外に切れて見えない）。
-   以前は「1段目＝ツール選択、2段目＝ツールの詳細＋時間選択」の2列グリッドや、
-   3ブロックを縦スワイプ（scroll-snap）で切り替える構成を試したが、前者は
-   2段目の2ブロックで列幅を分け合う形だと中身が半分幅に収まりきらず見切れて
-   スクロールが発生し（ユーザー報告）、後者は振り返りシークバー（横ドラッグの
-   range input）の上から縦スワイプしようとするとシークバーがジェスチャーを
-   奪ってしまい、ページ送りできず操作が固まったようになる問題があった
-   （issue #103）。
-   今回は道具選択（.toolbar-tools）を常時表示に固定し、その上の専用ハンドル
-   （.control-panel-handle、controlPanelDrawer.ts）をタップ/上下ドラッグした
-   時だけ、色/消しゴムサイズ（.toolbar-details）と振り返りシークバー
-   （#duration-slot）を一行展開する構成にした（ユーザー指示）。シークバー自体は
-   ページ送りジェスチャーの受け口を兼ねないため、issue #103の競合は構造的に
-   起きない。
+/* --- スマホ幅では、ツール選択とツールの詳細（色/消しゴムサイズ）が1行に
+   収まらない（ユーザー報告）。道具選択（.toolbar-tools）を常時表示に固定し、
+   その上の専用ハンドル（.control-panel-handle、controlPanelDrawer.ts）を
+   タップ/上下ドラッグした時だけ、色/消しゴムサイズ（.toolbar-details）を
+   一行展開する構成にした（ユーザー指示）。
    行の並びは上から「ハンドル／道具選択（常時表示）／展開行」の順——ハンドルを
    上へドラッグすると道具選択ごと上へ押し上げられ、その下（画面下端側）から
    展開行が現れるようにする（ユーザー指示：つまみを上にスワイプすると元の
-   ツールバーが上に上がって、その下から2つの要素が出てくるように見せたい）。
+   ツールバーが上に上がって、その下から要素が出てくるように見せたい）。
    展開行は.control-panel-bodyのgrid-template-rowsを0fr⇔1frでアニメーション
    させることで高さ0⇔auto相当の開閉にしている（他の行は`auto`のままなので、
    フレキシブルな1トラックだけがコンテンツの最大内容サイズへ向けて補間される）。
    この構成は.app-footer（position:fixedで画面下端に張り付く帯）自体の高さを
    開閉に応じて変える——以前は「フッターの縦幅は画面によらず常に一定」という
-   前提があり（.control-block参照）、共有タブの.info-row（見た目の設定・
-   セッション開始等の行）がその一定の高さを見込んだ決め打ちのbottom値で
-   フッターの裏に隠れないよう浮かせていたが、この前提が崩れるため.info-row側は
-   実測値（--app-footer-height、main.ts）を参照する形に変更した。
-   色/消しゴムサイズ側は内容量が少なく固定幅で足りる一方、振り返りシークバーは
-   幅があるほど「たった今」への戻しやすさに直結するため、残り幅をすべて
-   振り返り側に渡す（1fr列）。以前2ブロックで折半して見切れた失敗と違い、
-   固定幅側は消しゴム3ボタンか色スワッチ4つのどちらか一方しか出さないため
-   （toolbar.ts参照）、必要な幅は小さく、残りを振り返りシークバーに回しても
-   狭い端末幅で破綻しにくい。
+   前提があり（.control-block参照）、.info-row側がその一定の高さを見込んだ
+   決め打ちのbottom値でフッターの裏に隠れないよう浮かせていたが、この前提が
+   崩れるため.info-row側は実測値（--app-footer-height、main.ts）を参照する
+   形に変更した。
    余白・間隔は、機種ごとの画面幅の違いに応じて実際に伸び縮みするよう、
    固定pxではなくclamp(最小, 画面幅に連動する値, 最大)で指定する
    （ユーザー指摘：pxで揃えるのは可変でない）。 --- */
@@ -743,9 +803,7 @@ body[data-view="shared"] #duration-slot {
 
   .control-panel-body {
     display: grid;
-    /* 1fr 1frにして、色/消しゴムサイズと振り返りシークバーの横幅比を常に1:1に
-       する（ユーザー指示）——auto(中身任せ)だと道具によって幅が変わってしまう。 */
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
     grid-template-rows: auto auto 0fr;
     column-gap: clamp(6px, 2.5vw, 10px);
     row-gap: clamp(4px, 1.5vw, 6px);
@@ -762,17 +820,12 @@ body[data-view="shared"] #duration-slot {
     display: contents;
   }
 
-  .toolbar-details,
-  #duration-slot {
+  .toolbar-details {
     /* 展開行が0frの間、中身をはみ出させず高さ0まで詰められるようにする
        （grid itemの自動最小サイズはoverflow:hiddenで初めて0になる）。
        display:flex;align-items:centerで中身を縦方向中央に置くのは見た目の
        整えだけでなく、開閉アニメーションの見え方も揃えるため——中央寄せなら
-       行の高さが伸びるにつれ中身がちょうど中心から現れるが、中央寄せをやめて
-       上端基準（既定の配置）のままだと、中の.control-block自身が72pxの中で
-       中央寄せされている（.duration-seekbar参照）ぶん、行の高さが半分を
-       超えるまで中身（ラベル・スライダー）が見えない空白の時間ができ、
-       もう片方（色/消しゴムサイズ）より遅れて現れるように見えてしまう。 */
+       行の高さが伸びるにつれ中身がちょうど中心から現れる。 */
     grid-row: 3;
     display: flex;
     align-items: center;
@@ -782,28 +835,11 @@ body[data-view="shared"] #duration-slot {
     height: auto;
   }
 
-  .toolbar-details {
-    grid-column: 1;
-  }
-
-  /* 共有タブでは#duration-slotがdisplay:none（上のbody[data-view]ルール参照）
-     になり2列目が空くため、色/消しゴムサイズブロックを1列目に広げて空白を
-     埋める。属性セレクタ込みで上の.toolbar-details{grid-column:1}より詳細度が
-     高いため、ファイル内の前後関係に関わらず確実にこちらが勝つ。 */
-  body[data-view="shared"] .toolbar-details {
-    grid-column: 1 / -1;
-  }
-
   /* デスクトップの固定幅(170px)は、狭い端末幅では逆にグリッドの1マス（1fr）を
-     はみ出しかねないため、モバイルではマスいっぱいに広がる可変幅に戻す
-     ——1:1の比自体はグリッドの列(1fr 1fr)側で保証済み。 */
+     はみ出しかねないため、モバイルではマスいっぱいに広がる可変幅に戻す。 */
   .toolbar-details-card {
     width: 100%;
     gap: clamp(6px, 2.5vw, 10px);
-  }
-
-  #duration-slot {
-    grid-column: 2;
   }
 
   .control-panel-handle {
@@ -872,9 +908,9 @@ body[data-view="shared"] #duration-slot {
 }
 
 /* --- 横持ちスマホ向けの圧縮。上のmax-width:480pxは幅が乏しい縦持ち端末向けで
-   3ブロックが横に並びきらないための再配置だが、横持ちスマホは逆に幅は
+   ブロックが横に並びきらないための再配置だが、横持ちスマホは逆に幅は
    十分ある一方で高さが乏しい（100dvh基準の円がヘッダー・フッターの固定高さに
-   圧迫される）。3ブロックの横並び自体は幅的に成立するため再配置はせず、
+   圧迫される）。ブロックの横並び自体は幅的に成立するため再配置はせず、
    ヘッダー・フッターそれぞれの縦方向のpadding／.control-blockの固定height／
    道具ボタンのサイズだけを切り詰め、浮いた分をキャンバスの円（#canvas-panel、
    flex:1で残り高さを取る）に還元する。max-height:500pxはiPad横持ち(768px)や
@@ -884,10 +920,6 @@ body[data-view="shared"] #duration-slot {
   .app-header {
     padding: var(--space-1) var(--space-3);
     padding-top: calc(4px + env(safe-area-inset-top, 0px));
-  }
-
-  .view-nav-btn {
-    padding: 0.1875rem 0.625rem;
   }
 
   .control-block {
@@ -992,13 +1024,10 @@ body[data-view="shared"] #duration-slot {
   opacity: 1;
 }
 
-/* 共有ルームの見た目(見た目の設定、appearanceSelector.ts)がルームマスターに
-   よって固定されている間、非マスターは押せない。投票フェーズ中に「選択」
-   以外の道具を締め出す場合(toolbar.ts setOnlyToolEnabled)も同じ見た目を使う。
-   選択中(data-active)は薄くしないが、グレースケール化はして「今は固定されて
-   いる」ことを示す——不透明度の差(0.55→0.3)だけでは、単に「今選ばれていない
-   道具」との見分けが付きにくく、参加者から見て本当にロックされているのか
-   分かりづらいという指摘があった（issue #79）。 */
+/* ボタンが無効化されている間の見た目。選択中(data-active)は薄くしないが、
+   グレースケール化はして「今は操作できない」ことを示す——不透明度の差
+   (0.55→0.3)だけでは、単に「今選ばれていない道具」との見分けが付きにくい
+   という指摘があった（issue #79）。 */
 .toolbar-btn:disabled {
   cursor: not-allowed;
   pointer-events: none;
@@ -1021,64 +1050,6 @@ body[data-view="shared"] #duration-slot {
   white-space: nowrap;
 }
 
-/* --- 消しゴムの大きさ・振り返りの時刻を選ぶスライダー共通の見た目。以前は
-   accent-colorだけを当てたブラウザ標準の見た目だったが、GoodNotesのような
-   「意図して作られた道具」に見えるよう、細い軌道の上にインクの一滴のような
-   つまみを置く形に作り直した（UI再設計）。ペンの太さは選べる仕様をやめ常に
-   PEN_LINE_WIDTH固定にしたため、専用スライダー（旧.thickness-slider）は
-   廃止した（toolbar.ts参照）。 --- */
-.duration-seekbar-slider {
-  appearance: none;
-  width: 100%;
-  min-width: 4rem;
-  height: 1rem;
-  margin: 0;
-  background: transparent;
-  cursor: pointer;
-}
-
-.duration-seekbar-slider::-webkit-slider-runnable-track {
-  height: 0.1875rem;
-  border-radius: var(--radius-full);
-  background: var(--ink-20);
-}
-
-.duration-seekbar-slider::-moz-range-track {
-  height: 0.1875rem;
-  border-radius: var(--radius-full);
-  background: var(--ink-20);
-}
-
-.duration-seekbar-slider::-webkit-slider-thumb {
-  appearance: none;
-  width: 0.9375rem;
-  height: 0.9375rem;
-  margin-top: -0.375rem;
-  border-radius: 50%;
-  background: var(--ink-solid);
-  border: 2px solid var(--paper-1);
-  box-shadow: 0 1px 3px var(--ink-20);
-  transition: transform 0.15s ease;
-}
-
-.duration-seekbar-slider::-moz-range-thumb {
-  width: 0.9375rem;
-  height: 0.9375rem;
-  border: 2px solid var(--paper-1);
-  border-radius: 50%;
-  background: var(--ink-solid);
-  box-shadow: 0 1px 3px var(--ink-20);
-  transition: transform 0.15s ease;
-}
-
-.duration-seekbar-slider:active::-webkit-slider-thumb {
-  transform: scale(1.2);
-}
-
-.duration-seekbar-slider:active::-moz-range-thumb {
-  transform: scale(1.2);
-}
-
 /* --- インクの色: 色の三原色（CMY：シアン/マゼンタ/イエロー）の固定3スワッチ
    ＋4つ目の「好きな色」スワッチ（toolbar.ts、ユーザー指示：GoodNotesのように
    定番色をすぐ選べるようにしたい。以前は黒/赤/青だったが、マーカーで黒は
@@ -1091,8 +1062,8 @@ body[data-view="shared"] #duration-slot {
 }
 
 /* 選択ツールを選んでいる間は、触れない・薄いことで無効だと分かるように
-   する（.duration-seekbar-disabledと同じ考え方。issue #68）。消しゴムの間は
-   グレーアウトではなく非表示にする（syncSwatch参照）ため、こちらは使わない。 */
+   する（issue #68）。消しゴムの間はグレーアウトではなく非表示にする
+   （syncSwatch参照）ため、こちらは使わない。 */
 .toolbar-swatches-disabled {
   opacity: 0.4;
   pointer-events: none;
@@ -1184,9 +1155,8 @@ body[data-view="shared"] #duration-slot {
    ネイティブの<input type="color">（RGB数値等が出てくる）ではなく、Chromeの
    テーマ設定と同じ横1本の色相グラデーションバー（ユーザー指示）——素の
    <input type="range">に虹色のグラデーショントラックを描くだけで、ドラッグ・
-   タップ・キーボード操作がそのまま使える。.duration-seekbar-sliderと
-   同じ構造（appearance:noneのtrack+thumb）だが、trackの背景だけ単色では
-   なく色相環のグラデーションにしている。 --- */
+   タップ・キーボード操作がそのまま使える。appearance:noneのtrack+thumbで
+   組み立て、trackの背景を色相環のグラデーションにしている。 --- */
 .theme-hue-slider {
   appearance: none;
   width: 100%;
@@ -1247,88 +1217,6 @@ body[data-view="shared"] #duration-slot {
   box-shadow: 0 1px 3px var(--ink-20);
 }
 
-/* --- 装飾を持たない小さなリンク風ボタン。clerkAccount（サインイン導線）で
-   使う。共有ルームメニュー内の文字ボタンは.pill-btn（下記）を使う——
-   アイコンのみの.toolbar-btnと違い、文字だけだと押せることが伝わりにくい
-   （ユーザー指摘）ため、そちらは背景色を持たせている。 --- */
-.text-link {
-  appearance: none;
-  border: none;
-  background: none;
-  font: inherit;
-  font-size: var(--text-xs);
-  color: var(--ink-40);
-  cursor: pointer;
-  padding: 0.125rem var(--space-1);
-}
-
-/* --- 道具バー全体のグレーアウト。振り返りスライダーで過去に遡っている間、
-   道具を使えないことを示す（ユーザー指示）。.duration-seekbar-disabled等と
-   同じ「触れない・薄い」パターン。.toolbarは.fade-visible.is-visible
-   （opacity:1、詳細度0,2,0）も同時に持つため、.toolbar-disabled単体（0,1,0）
-   では負けてしまう——.toolbarと組み合わせて詳細度を揃え、こちらを優先させる。 */
-.toolbar.toolbar-disabled {
-  opacity: 0.4;
-  pointer-events: none;
-}
-
-/* --- 時間選択ブロック：旧「消えるまでの期間」を選ぶシークバーの枠を、
-   過去に遡って見るシークバー（rewindSelector.ts）に転用したもの。現在値の
-   ラベルをスライダーの上に置く縦積みにしている（ユーザー指示）。「最初」
-   「現在」のような両端のラベルは持たない、控えめな作り（以前からの指示）。 --- */
-
-.duration-seekbar {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  gap: 0.375rem;
-  /* .toolbar-details-cardと同じ式（固定pxではなくclamp）にして、2ブロックの
-     横幅比を画面幅によらず常に1:1に揃える（ユーザー指示・指摘）。 */
-  width: clamp(150px, 15vw, 200px);
-  /* ホバー案内(.tool-tooltip、rewindSelector.ts)をこのブロック基準で
-     重ねて表示するため（.toolbar-btnと同じ理由）。 */
-  position: relative;
-}
-
-/* モバイル幅では.control-panel-bodyのグリッド列（1fr 1fr）自体が1:1を保証する
-   ため、上のclampは使わずマスいっぱいに広がる可変幅に戻す——このルールは
-   上の.duration-seekbar本体定義より後（ファイル内で下）に置く必要がある。
-   同じ詳細度のセレクタはメディアクエリの有無に関係なくソース順で後の方が
-   勝つため、以前これをファイル前方（.control-panel-bodyまわりの
-   モバイル用ブロック）に置いていた時は本体定義に上書きされて効いていなかった
-   （実機で色ブロックだけ幅いっぱいに広がり、シークバー側だけ最小値(150px)の
-   まま中央に取り残されて見える不具合があった）。 */
-@media (max-width: 480px) {
-  .duration-seekbar {
-    width: 100%;
-  }
-}
-
-.duration-seekbar-label {
-  appearance: none;
-  border: none;
-  background: none;
-  font-family: inherit;
-  font-size: var(--text-sm);
-  font-variant-numeric: tabular-nums;
-  color: var(--ink-70);
-  padding: 0;
-  cursor: pointer;
-}
-
-.duration-seekbar-slider {
-  min-width: 5.625rem;
-}
-
-.archive-empty {
-  width: 100%;
-  max-width: 30rem;
-  text-align: center;
-  font-size: var(--text-sm);
-  color: var(--ink-45);
-}
-
 /* --- ポップオーバーの中を「招待リンク／ルーム一覧／作成」の3区画に分ける
    仕切り。以前は全部が同じ余白・同じ背景で単純に縦に並ぶだけで、要素の
    まとまりが見た目に伝わらなかった（ユーザー指摘：色々な要素が区切られる
@@ -1382,75 +1270,6 @@ body[data-view="shared"] #duration-slot {
   background: var(--paper-3);
 }
 
-/* --- アイコン+文字のpill-btn（「新しいルームを作成」「共有URLをコピー」、
-   ユーザー指示）。.pill-btn自体には付けず専用の修飾クラスにするのは、
-   文字だけの.pill-btn（ゲスト参加・セッション開始等）のレイアウトに
-   影響させないため。 --- */
-.pill-btn--icon {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.375rem;
-}
-
-.pill-btn--icon svg {
-  width: 0.875rem;
-  height: 0.875rem;
-  flex: 0 0 auto;
-}
-
-/* --- 共有タブのボタン（＋ルームを作成／セッションを開始）は、画面幅が狭いと
-   1行に並びきらない（ユーザー指摘）。それぞれのボタンが.label-full（通常
-   表示）と.label-short（短縮表示）の2つを持ち、画面幅に応じてどちらかだけを
-   見せる——テキストを動的に書き換えるのではなく出し分けにすることで、他の
-   .control-block同様「固定pxではなく画面幅に連動」という考え方をここでも
-   踏襲する（sharedRoomMenu.ts/sessionPanel.ts参照）。 --- */
-.label-short {
-  display: none;
-}
-
-@media (max-width: 480px) {
-  .label-full {
-    display: none;
-  }
-
-  .label-short {
-    display: inline;
-  }
-}
-
-/* --- 主要な操作（そのカードの中で「まず押すべき」1つ）だけに使う塗りの
-   スタイル。これまで全ボタンが同じ地味なグレーのピルで、どれが主要な
-   操作か視覚的に伝わらなかった（UI再設計の一環）。インクの色そのものを
-   塗りに使うことで、「紙に書く」世界観の延長として主要操作を強調する。 --- */
-.pill-btn.pill-btn--primary {
-  background: var(--ink-solid);
-  color: var(--paper-1);
-  font-weight: 600;
-}
-
-.pill-btn.pill-btn--primary:hover {
-  background: var(--ink-85);
-}
-
-/* --- 「メガネ1」「メガネ2」切り替えタブ(issue #113④)。.toolbar-btnは38px角の
-   アイコン専用サイズなので、文字ラベルを持つこのタブには使わず、view-nav-btn
-   と同じ「幅は中身なり・角丸長方形」の見た目に個別で揃える。 --- */
-.appearance-pair-tab-btn {
-  width: auto;
-  height: auto;
-  padding: 0.3125rem 0.875rem;
-  border-radius: 6px;
-  font-size: var(--text-sm);
-  font-weight: 500;
-  color: var(--ink-55);
-  opacity: 1;
-}
-
-.appearance-pair-tab-btn[data-active="true"] {
-  background: var(--paper-3);
-  color: var(--ink-95);
-  font-weight: 600;
-}
 
 /* --- アプリのメインメニュー(settingsMenu.ts)のトリガーボタン。画面左上
    （ヘッダー、issue #161）に固定表示する。透明な帯である.app-header
@@ -1541,18 +1360,6 @@ body[data-view="shared"] #duration-slot {
 
 .settings-popover .shared-menu-section {
   border-top: none;
-}
-
-/* --- 設定メニューの一番上の「円相」見出し(issue #161)。左上のトリガーの
-   位置に元々あった常時表示のアプリ名(.app-wordmark)と入れ替わる形で
-   ここへ移した——すぐ下の「テーマ」区画と間隔を空ける。 --- */
-.settings-title {
-  /* Klee Oneの字形の天地の空き方が均等でなく、.settings-popoverの
-     padding-top(14px)だけだと上の余白が下（この8pxのmargin-bottom＋
-     文字の下側の空き）より狭く見えた（ユーザー指摘）ため、文字ごと
-     少し下へ寄せて釣り合わせる。 */
-  margin-top: var(--space-1);
-  margin-bottom: var(--space-2);
 }
 
 /* --- 「使い方を見る」ボタンを、上のテーマ行と左右の余白が揃うまで幅いっぱいに
@@ -1867,44 +1674,6 @@ body[data-view="shared"] #duration-slot {
   text-wrap: pretty;
 }
 
-.tutorial-watch-progress {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-1);
-  width: min(100%, 15rem);
-}
-
-.tutorial-watch-progress-label {
-  font-size: var(--text-xs);
-  color: var(--ink-60);
-}
-
-.tutorial-watch-progress-bar {
-  appearance: none;
-  width: 100%;
-  height: 0.375rem;
-  overflow: hidden;
-  border: none;
-  border-radius: var(--radius-full);
-  background: var(--ink-12);
-}
-
-.tutorial-watch-progress-bar::-webkit-progress-bar {
-  background: var(--ink-12);
-  border-radius: var(--radius-full);
-}
-
-.tutorial-watch-progress-bar::-webkit-progress-value {
-  background: var(--ink-60);
-  border-radius: var(--radius-full);
-}
-
-.tutorial-watch-progress-bar::-moz-progress-bar {
-  background: var(--ink-60);
-  border-radius: var(--radius-full);
-}
-
 .tutorial-sandbox-actions {
   display: flex;
   align-items: center;
@@ -1966,16 +1735,6 @@ body[data-view="shared"] #duration-slot {
     margin-top: 0;
   }
 
-  /* 進捗バー・振り返り欄は、非表示の間は素直に[hidden]（display:none）へ戻す
-     ——見えない間まで高さを占有させず、他の手順ではその分だけ詰まって見える
-     ようにする（ユーザー指示）。全体の大きさ（.usage-guide-sheetの高さ）自体は
-     固定値のままなので、詰まった分は中央寄せの余白に吸収されるだけで、
-     モーダルの大きさは変わらない。 */
-  .tutorial-sandbox-seek {
-    width: min(100%, 240px);
-    min-height: 72px;
-  }
-
   .tutorial-sandbox-canvas-wrap {
     width: min(100%, clamp(90px, calc(100dvh - 350px), 360px));
     max-width: none;
@@ -2010,111 +1769,85 @@ body[data-view="shared"] #duration-slot {
   }
 }
 
-/* --- フェーズ切り替えの「カットイン」演出 (issue #79) -------------------
-   共同アイデア出しセッションのフェーズが切り替わった瞬間、格闘ゲーム風の
-   帯+フラッシュで「アイデア出し開始」等を一瞬だけ大きく見せる。
-   phaseCutIn.tsが呼ぶたびに.phase-cutinを1つ生成し、アニメーション終了で
-   自分自身を消す（使い捨てのDOM）。 --- */
-.phase-cutin {
+/* --- 過去めくり画面（archiveCanvas.ts）でメモをドラッグしている間、指・
+   カーソルへ追従する小さなプレビュー。position:fixedで画面のどこにでも
+   置けるようにし、pointer-eventsは持たせない（下のキャンバスへのポインタ
+   イベントを妨げないため）。z-indexはtext-editor-overlay(20)より上、
+   全画面モーダル(41/500番台)より下——ドラッグ中に他のモーダルが同時に
+   開くことは無いため、それらより上まで出す必要はない。 --- */
+.history-drag-ghost {
   position: fixed;
-  inset: 0;
-  z-index: 500;
+  top: 0;
+  left: 0;
+  transform: translate(-50%, -50%);
+  z-index: 30;
   pointer-events: none;
-  overflow: hidden;
+  opacity: 0.7;
+}
+
+/* --- 過去めくり画面でメモをドラッグ中だけ画面右端からスライドインする
+   ドロップ帯（main.ts showDropZone/hideDropZone）。実際のドロップ判定は
+   JS側でclientX/Yとgetボundingclientrectを比較して行うため（isPointOverDropZone）、
+   この要素自体はpointer-eventsを持たない——ドラッグ元のarchive-canvasが
+   pointer captureを握ったままなので、奪う必要も奪える立場も無い。
+   hidden属性で出現/消滅の瞬間を切り替え、is-visibleクラスのtransformで
+   スライドイン/アウトのアニメーションを付ける（JS側のHISTORY_DROP_ZONE_
+   TRANSITION_MSと同じ200msに揃える）。z-indexはドラッグゴースト(30)より
+   下——ゴーストが常に帯の上に重なって見えるようにする。 --- */
+.history-drop-zone {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 25;
+  width: min(30vw, 12rem);
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-.phase-cutin-flash {
-  position: absolute;
-  inset: 0;
-  background: var(--paper-1);
-  opacity: 0;
-  animation: phase-cutin-flash 0.5s ease-out forwards;
-}
-
-.phase-cutin-band {
-  position: absolute;
-  left: -15%;
-  right: -15%;
-  height: 22%;
-  min-height: 5.25rem;
-  background: var(--ink-solid);
+  padding: var(--space-4);
+  border-left: 1px solid var(--ink-12);
+  border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+  background: var(--paper-2);
   box-shadow: var(--shadow-popover);
-  transform: translateX(-130%) skewY(-3deg);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  animation: phase-cutin-band 1s cubic-bezier(0.22, 0.9, 0.24, 1) forwards;
+  transform: translateX(100%);
+  transition: transform 200ms ease, background-color var(--duration-fast) ease;
+  pointer-events: none;
 }
 
-.phase-cutin-text {
-  font-family: "Klee One", "Noto Sans JP", sans-serif;
-  font-weight: 600;
-  font-size: clamp(28px, 5.5vw, 56px);
-  letter-spacing: 0.06em;
-  color: var(--paper-1);
-  white-space: nowrap;
-  transform: skewY(3deg) translateX(-24px);
-  opacity: 0;
-  animation: phase-cutin-text 0.6s ease-out 0.18s forwards;
+.history-drop-zone.is-visible {
+  transform: translateX(0);
 }
 
-@keyframes phase-cutin-flash {
-  0% {
-    opacity: 0.9;
-  }
-  100% {
-    opacity: 0;
-  }
+.history-drop-zone.is-hover {
+  background: var(--paper-3);
+  border-left-color: var(--ink-20);
 }
 
-@keyframes phase-cutin-band {
-  0% {
-    transform: translateX(-130%) skewY(-3deg);
-  }
-  22% {
-    transform: translateX(0%) skewY(-3deg);
-  }
-  72% {
-    transform: translateX(0%) skewY(-3deg);
-  }
-  100% {
-    transform: translateX(130%) skewY(-3deg);
-  }
+.history-drop-zone-label {
+  max-width: 100%;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--ink-70);
+  text-align: center;
 }
 
-@keyframes phase-cutin-text {
-  0% {
-    opacity: 0;
-    transform: skewY(3deg) translateX(-24px);
-  }
-  18% {
-    opacity: 1;
-    transform: skewY(3deg) translateX(0);
-  }
-  70% {
-    opacity: 1;
-    transform: skewY(3deg) translateX(0);
-  }
-  100% {
-    opacity: 0;
-    transform: skewY(3deg) translateX(20px);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .phase-cutin-flash,
-  .phase-cutin-band,
-  .phase-cutin-text {
-    animation: none;
-  }
-  .phase-cutin-band {
-    transform: skewY(0deg);
-  }
-  .phase-cutin-text {
-    opacity: 1;
-    transform: none;
-  }
+/* --- 初回の朝リセット発生時にだけ出す一言ヒント（E2-14、main.ts
+   maybeShowFirstResetHint）。.canvas-empty-hintと同じ控えめな地の文の
+   トーンで、画面上部に浮かべて自動的にフェードアウトする一過性のトースト。 --- */
+.first-reset-hint {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + var(--space-4));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 15;
+  margin: 0;
+  max-width: min(90vw, 32rem);
+  padding: 0.5rem var(--space-4);
+  border-radius: var(--radius-full);
+  background: var(--paper-2);
+  box-shadow: var(--shadow-card);
+  color: var(--ink-70);
+  font-size: var(--text-xs);
+  text-align: center;
+  pointer-events: none;
 }

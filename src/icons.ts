@@ -8,9 +8,8 @@
  *
  * 一部は挙動が絡む・既製アイコンに相当するものが無いため、引き続き自前で
  * 描いている: marker（選択中の色が先端に反映されるチゼルチップ）、
- * eraserSizeSmall/Medium/Large（実際の大きさの違いをそのまま見せる市松模様）、
- * pattern*（柄・質感そのもののプレビュー）。これらは今までどおりfill:none+
- * strokeの線画（common）や個別の塗りで描く。
+ * eraserSizeSmall/Medium/Large（実際の大きさの違いをそのまま見せる市松模様）。
+ * これらは今までどおりfill:none+strokeの線画（common）や個別の塗りで描く。
  */
 
 const common = 'fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"';
@@ -31,10 +30,6 @@ export const ICONS: Record<
   | "shapeSquare"
   | "sharedRooms"
   | "menu"
-  | "patternMatte"
-  | "patternTortoiseshell"
-  | "patternClear"
-  | "patternWood"
   | "trash"
   | "timer"
   | "room"
@@ -173,47 +168,6 @@ export const ICONS: Record<
   menu: `
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor">
       <path d="M228,128a12,12,0,0,1-12,12H40a12,12,0,0,1,0-24H216A12,12,0,0,1,228,128ZM40,76H216a12,12,0,0,0,0-24H40a12,12,0,0,0,0,24ZM216,180H40a12,12,0,0,0,0,24H216a12,12,0,0,0,0-24Z"/>
-    </svg>`,
-  // 柄・質感の4アイコンは、既存のライン系アイコンと違い形ではなく質感そのものの
-  // プレビューなので、線でなく塗りのスワッチとして描く（common属性は使わない）。
-  patternMatte: `
-    <svg viewBox="0 0 24 24">
-      <defs>
-        <linearGradient id="pm-g" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stop-color="oklch(25% 0.02 55)" />
-          <stop offset="0.5" stop-color="oklch(36% 0.022 55)" />
-          <stop offset="1" stop-color="oklch(25% 0.02 55)" />
-        </linearGradient>
-      </defs>
-      <rect x="3" y="3" width="18" height="18" rx="5" fill="url(#pm-g)" />
-    </svg>`,
-  patternTortoiseshell: `
-    <svg viewBox="0 0 24 24">
-      <rect x="3" y="3" width="18" height="18" rx="5" fill="oklch(46% 0.09 70)" />
-      <ellipse cx="8" cy="8" rx="4" ry="3" transform="rotate(20 8 8)" fill="oklch(20% 0.03 50)" opacity="0.55" />
-      <ellipse cx="16" cy="9" rx="3.2" ry="2.4" transform="rotate(-15 16 9)" fill="oklch(28% 0.07 40)" opacity="0.6" />
-      <ellipse cx="7" cy="16" rx="3.5" ry="2.6" transform="rotate(-10 7 16)" fill="oklch(30% 0.08 45)" opacity="0.5" />
-      <ellipse cx="16" cy="16.5" rx="4" ry="3" transform="rotate(15 16 16.5)" fill="oklch(18% 0.02 40)" opacity="0.6" />
-    </svg>`,
-  patternClear: `
-    <svg viewBox="0 0 24 24">
-      <defs>
-        <linearGradient id="pc-g" x1="0" y1="0" x2="1" y2="0.6">
-          <stop offset="0" stop-color="oklch(80% 0.03 90 / 0.6)" />
-          <stop offset="0.35" stop-color="oklch(97% 0.015 95 / 0.9)" />
-          <stop offset="0.5" stop-color="oklch(72% 0.035 90 / 0.55)" />
-          <stop offset="0.7" stop-color="oklch(97% 0.015 95 / 0.9)" />
-          <stop offset="1" stop-color="oklch(80% 0.03 90 / 0.6)" />
-        </linearGradient>
-      </defs>
-      <rect x="3" y="3" width="18" height="18" rx="5" fill="url(#pc-g)" stroke="oklch(60% 0.03 90 / 0.5)" stroke-width="1" />
-    </svg>`,
-  patternWood: `
-    <svg viewBox="0 0 24 24">
-      <rect x="3" y="3" width="18" height="18" rx="5" fill="oklch(53% 0.07 60)" />
-      <path d="M3 8c3-2 6 2 9 0s6-2 9 0" fill="none" stroke="oklch(32% 0.06 50)" stroke-width="1.1" opacity="0.55" />
-      <path d="M3 13c3-2 6 2 9 0s6-2 9 0" fill="none" stroke="oklch(38% 0.07 55)" stroke-width="1.3" opacity="0.5" />
-      <path d="M3 18c3-2 6 2 9 0s6-2 9 0" fill="none" stroke="oklch(30% 0.05 45)" stroke-width="1" opacity="0.5" />
     </svg>`,
   trash: `
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor">

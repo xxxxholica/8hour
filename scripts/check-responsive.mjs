@@ -1,6 +1,10 @@
 import { chromium } from "playwright";
 
-const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+// ブラウザ本体の場所はPlaywrightの既定解決に任せる——PLAYWRIGHT_BROWSERS_PATH
+// が設定されていればそこを、未設定ならデフォルトのキャッシュ（`npx playwright
+// install`が置く場所）を見る。固定パスを直書きすると、そのパスが存在しない
+// 環境（ローカル開発機など）で即座に起動失敗していた。
+const browser = await chromium.launch();
 
 const sizes = [
   { name: "mobile", width: 375, height: 700 },

@@ -1,7 +1,11 @@
 import { chromium } from "playwright";
 
 const errors = [];
-const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+// ブラウザ本体の場所はPlaywrightの既定解決に任せる——PLAYWRIGHT_BROWSERS_PATH
+// が設定されていればそこを、未設定ならデフォルトのキャッシュ（`npx playwright
+// install`が置く場所）を見る。固定パスを直書きすると、そのパスが存在しない
+// 環境（ローカル開発機など）で即座に起動失敗していた。
+const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 500, height: 780 } });
 page.on("console", (msg) => {
   if (msg.type() === "error") errors.push(msg.text());
@@ -34,72 +38,15 @@ const parsed = JSON.parse(stored ?? "[]");
 console.log("SAVED_MEMOS_COUNT", parsed.length);
 console.log("FIRST_MEMO_STROKE_POINTS", parsed[0]?.strokes?.[0]?.length ?? 0);
 
-// 消えるまでの期間を「1分」(テスト用の短い期間指定)に切り替える
-await page.getByText("1分", { exact: true }).click();
-await page.mouse.move(cx + 40, cy + 60);
-await page.mouse.down();
-await page.mouse.move(cx + 70, cy + 90);
-await page.mouse.move(cx + 90, cy + 60);
-await page.mouse.up();
-await page.waitForTimeout(200);
-await page.screenshot({ path: "/tmp/shot-3-period-pen.png" });
-
-const stored2 = await page.evaluate(() => localStorage.getItem("memos"));
-const parsed2 = JSON.parse(stored2 ?? "[]");
-console.log("AFTER_PERIOD_PEN_COUNT", parsed2.length);
-console.log("SECOND_MEMO_LIFESPAN_DAYS", parsed2[1]?.lifespanDays);
-
-// なぞって復活: 経過時間を強制的に進めて再読み込み後の見た目を確認するため、
-// lastTracedAt を過去にずらしてリロード → 薄くなっているはずの場所をなぞる
-await page.evaluate(() => {
-  const memos = JSON.parse(localStorage.getItem("memos"));
-  const now = Date.now();
-  memos[0].lastTracedAt = now - 3 * 24 * 60 * 60 * 1000; // 3日前 → 20%想定
-  localStorage.setItem("memos", JSON.stringify(memos));
-});
+// リロード後も残っているか確認（自動フェード・自動消滅は無い設計のため、
+// 消しゴムで触れない限りメモは残り続けるはず）。
 await page.reload({ waitUntil: "networkidle" });
 await page.waitForSelector("canvas.circle-canvas");
 await page.waitForTimeout(200);
-await page.screenshot({ path: "/tmp/shot-4-faded.png" });
-
-// 薄れたメモの上をなぞって復活させる（ストロークの中点＝正確に線上の点を狙う）
-const tracePx = { x: cx, y: cy - 40 };
-await page.mouse.move(tracePx.x, tracePx.y);
-await page.mouse.down();
-await page.mouse.move(tracePx.x + 5, tracePx.y + 2);
-await page.mouse.up();
-await page.waitForTimeout(200);
-
-const stored3 = await page.evaluate(() => localStorage.getItem("memos"));
-const parsed3 = JSON.parse(stored3 ?? "[]");
-console.log("REVIVED_LAST_TRACED_RECENT", Date.now() - parsed3[0].lastTracedAt < 5000);
-
-// 7日以上経過させて振り返りビューに移動するか確認
-await page.evaluate(() => {
-  const memos = JSON.parse(localStorage.getItem("memos"));
-  memos.forEach((m) => {
-    m.lastTracedAt = Date.now() - 8 * 24 * 60 * 60 * 1000;
-  });
-  localStorage.setItem("memos", JSON.stringify(memos));
-});
-await page.reload({ waitUntil: "networkidle" });
-await page.waitForTimeout(300); // rAFループでtickが走るのを待つ
-await page.getByRole("button", { name: "振り返り" }).click();
-await page.waitForTimeout(100);
-await page.screenshot({ path: "/tmp/shot-5-archive.png" });
-
-// 消えたメモの個別一覧はコンセプト上持たせていないため、DOM上の一覧要素ではなく
-// localStorageのstatusで消滅済み件数を確認する
-const storedFaded = await page.evaluate(() => JSON.parse(localStorage.getItem("memos") ?? "[]"));
-const fadedCount = storedFaded.filter((m) => m.status === "faded").length;
-console.log("FADED_MEMO_COUNT", fadedCount);
-console.log("ARCHIVE_LIST_UI_REMOVED", (await page.locator(".archive-item").count()) === 0);
-
-const activeAfter = await page.evaluate(() => {
-  const memos = JSON.parse(localStorage.getItem("memos"));
-  return memos.filter((m) => m.status === "active").length;
-});
-console.log("ACTIVE_AFTER_FADE", activeAfter);
+const storedAfterReload = await page.evaluate(() => localStorage.getItem("memos"));
+const parsedAfterReload = JSON.parse(storedAfterReload ?? "[]");
+console.log("MEMOS_AFTER_RELOAD_COUNT", parsedAfterReload.length);
+console.log("ALL_STILL_ACTIVE", parsedAfterReload.every((m) => m.status === "active"));
 
 console.log("CONSOLE_ERRORS", JSON.stringify(errors));
 

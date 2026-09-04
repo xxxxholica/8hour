@@ -1,7 +1,11 @@
 import { chromium } from "playwright";
 
 const errors = [];
-const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+// ブラウザ本体の場所はPlaywrightの既定解決に任せる——PLAYWRIGHT_BROWSERS_PATH
+// が設定されていればそこを、未設定ならデフォルトのキャッシュ（`npx playwright
+// install`が置く場所）を見る。固定パスを直書きすると、そのパスが存在しない
+// 環境（ローカル開発機など）で即座に起動失敗していた。
+const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 500, height: 900 } });
 page.on("console", (msg) => {
   if (msg.type() === "error") errors.push(msg.text());
@@ -33,7 +37,6 @@ await page.waitForTimeout(100);
 let memos = await page.evaluate(() => JSON.parse(localStorage.getItem("memos") ?? "[]"));
 console.log("MEMO_COUNT_AFTER_STROKE", memos.length);
 const strokeBefore = JSON.parse(JSON.stringify(memos[0].strokes));
-const traceHistoryBefore = memos[0].traceHistory.slice();
 
 // 移動道具に切り替えて、線の上を掴んでドラッグする
 await page.locator('.toolbar-btn[aria-label="移動"]').click();
@@ -54,10 +57,6 @@ console.log("STROKE_MOVED", dx0 > 0.05 && dy0 > 0.02);
 console.log(
   "STROKE_SHAPE_PRESERVED",
   Math.abs(strokeAfter[0][1].x - strokeAfter[0][0].x - (strokeBefore[0][1].x - strokeBefore[0][0].x)) < 0.01
-);
-console.log(
-  "MOVE_DOES_NOT_TOUCH_TRACE_HISTORY",
-  JSON.stringify(memos[0].traceHistory) === JSON.stringify(traceHistoryBefore)
 );
 
 // 移動道具で何もない場所をドラッグしても新規メモは作られない

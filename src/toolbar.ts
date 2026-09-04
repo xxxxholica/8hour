@@ -3,10 +3,9 @@ import { notifyClose, notifyOpen } from "./exclusivePopover";
 import { ICONS } from "./icons";
 import { DEFAULT_FONT_SIZE_STEP, FONT_SIZE_STEPS } from "./textLayout";
 import { PEN_LINE_WIDTH } from "./toolStyle";
-import type { TemplateId } from "./templates";
 import type { DrawTool } from "./types";
 
-export type ToolbarTool = DrawTool | "eraser" | "text" | "move" | "trace";
+export type ToolbarTool = DrawTool | "eraser" | "text" | "move";
 
 export const DEFAULT_INK = "oklch(22% 0.012 55)";
 
@@ -74,34 +73,23 @@ const MARKER_PRESET_INKS: InkPreset[] = [
   { id: "yellow", label: "イエロー", color: "oklch(90% 0.1 95)" },
 ];
 
-/** 鉛筆とペンはほぼ同じ機能（線を描くだけ）だったため1つに統合した（ユーザー指示）。
- *  「なぞる」は、なぞって復活させる操作がペン等の描画操作と混じりやすかったため、
- *  専用の道具として分離したもの（ユーザー指示）——「移動」道具と同じく、既存の
- *  メモに触れた場合だけ働き、何もない場所への新規作成はしない。
- *  "trace"はTOOL_ORDERから外して道具バーに出さないようにしている（ユーザー指示：
- *  選択道具の振り回し操作に統合したため。レビュー次第で復活させる可能性がある
- *  ため、道具そのもの・canvasView.ts側のなぞる処理は削除せず残している——
- *  再度表示したい場合はここに"trace"を戻すだけでよい）。 */
+/** 鉛筆とペンはほぼ同じ機能（線を描くだけ）だったため1つに統合した（ユーザー指示）。 */
 const TOOL_ORDER: ToolbarTool[] = ["pen", "marker", "text", "move", "eraser"];
 const TOOL_LABEL: Record<ToolbarTool, string> = {
   pen: "ペン",
   marker: "マーカー",
   text: "テキスト",
   move: "選択",
-  trace: "なぞる",
   eraser: "消しゴム",
 };
 
 /**
- * Appleメモ風の道具バー: ペン／マーカー／テキスト／移動／なぞる／消しゴムの切り替え、
- * テンプレート挿入、フルカラーのインク色選択をまとめて扱う（鉛筆とペンはほぼ同じ
- * 機能だったため1つに統合した——ユーザー指示）。
- * 「消えるまでの期間」は選べる仕様をやめ常に1日固定にしたため、ここでは扱わない
- * （fade.tsのFIXED_LIFESPAN_DAYS参照）。
+ * Appleメモ風の道具バー: ペン／マーカー／テキスト／移動／消しゴムの切り替え、
+ * フルカラーのインク色選択をまとめて扱う（鉛筆とペンはほぼ同じ機能だったため
+ * 1つに統合した——ユーザー指示）。
  *
- * 下部バーは機能ごとに3ブロックへ分けており、このToolbarクラスはそのうち
- * 左と中央の2つを受け持つ（右のブロックは、旧「消えるまでの期間」選択の枠を
- * 転用した振り返りスライダー——RewindSelectorが別に#duration-slotへ描画する）:
+ * 下部バーは機能ごとに2ブロックへ分けており、このToolbarクラスはその両方を
+ * 受け持つ:
  *   - 左（.toolbar-tools）＝「ツール選択ブロック」: 道具アイコンと「戻る」
  *     （issue #90）を同じ1列（.toolbar-pill）に、すべて同じ大きさ
  *     （.toolbar-btn）で並べる。「何をするか」という操作そのものの並びとして、
@@ -124,10 +112,6 @@ const TOOL_LABEL: Record<ToolbarTool, string> = {
  * 以前は道具アイコンの上にposition: absoluteで浮かせていた詳細ブロックを
  * 通常のフローに戻し、ブロックを横に並べるだけで1行に収まるようにしている。
  *
- * テンプレートの選択自体はここでは扱わない（設定メニューから開く全画面の
- * テンプレート選択、templatePicker.ts）——このクラスはinsertTemplate()経由で
- * 「道具をテキストに切り替えてから盤面に置く」の橋渡しだけを担う。
- *
  * DOMは初回に一度だけ組み立て、以降は状態が変わった箇所だけをピンポイントで
  * 更新する（innerHTMLを毎回作り直さない）。
  */
@@ -135,7 +119,6 @@ export class Toolbar {
   private el: HTMLElement;
   private container: HTMLElement;
   private onChange?: () => void;
-  private onInsertTemplate?: (id: TemplateId) => void;
   private onUndo?: () => void;
   private tool: ToolbarTool = "pen";
   /** マーカー以外（ペン・テキスト等）で使う色。消しゴムの大きさが
@@ -148,11 +131,6 @@ export class Toolbar {
   private eraserRadius: number = ERASER_SIZE_STEPS.medium;
 
   private toolButtons = new Map<ToolbarTool, HTMLButtonElement>();
-  /** setOnlyToolEnabled参照。投票フェーズ中、「選択」以外の道具ボタンを
-   *  実際に押せなく＆薄くする（issue #79）。colorLockedと同じ理由で、
-   *  syncPill()側で毎回加味する専用フィールドにしてある——setTool()経由の
-   *  syncAll()呼び出しで消えてしまわないようにするため。 */
-  private toolRestrictedTo: ToolbarTool | null = null;
 
   /** 消しゴムの大きさ（小/中/大）を選ぶボタン。.toolbar-details内の同じ位置を
    *  カラースワッチと奪い合う形で、道具が消しゴムの時だけこちらを表示し、
@@ -182,31 +160,18 @@ export class Toolbar {
   private readonly closeCustomColorPopoverRef = () => this.closeCustomColorPopover();
   private hueSlider!: HTMLInputElement;
   private swatchRow!: HTMLElement;
-  /** setColorLocked参照。syncSwatch()がtoolの種類だけを見てdisabledを
-   *  決め直してしまうと、道具を切り替えるたびにこのロックが解除されて
-   *  しまっていた（issue #79：参加者の色制限が見た目にも実際にも効かなく
-   *  なる不具合）ため、syncSwatch()側でもこの状態を毎回加味する。 */
-  private colorLocked = false;
   /** カスタムスワッチ（4つ目）で一度でも選んだ色。GoodNotes同様、選んだ色は
    *  そのスワッチ自体の色として残り続け、次回はクリックひとつで呼び戻せる。
    *  ペン・マーカーどちらで選んでも共有する1つの値（枠は増やさない）。 */
   private customColor: string | null = null;
 
-  constructor(
-    container: HTMLElement,
-    onChange?: () => void,
-    onInsertTemplate?: (id: TemplateId) => void,
-    onUndo?: () => void
-  ) {
+  constructor(container: HTMLElement, onChange?: () => void, onUndo?: () => void) {
     this.container = container;
     this.onChange = onChange;
-    this.onInsertTemplate = onInsertTemplate;
     this.onUndo = onUndo;
 
     this.el = document.createElement("div");
-    // fade-visible: 画面切り替え時にこのバー全体がふわっとクロスフェードする
-    // ためのクラス（main.tsが表示・非表示を切り替える。ユーザー指示）。
-    this.el.className = "toolbar fade-visible";
+    this.el.className = "toolbar";
     this.container.appendChild(this.el);
 
     this.buildTools();
@@ -261,22 +226,7 @@ export class Toolbar {
     this.onChange?.();
   }
 
-  /**
-   * 選んだテンプレートをそのまま盤面に置く（常に描画範囲の中心に、範囲全体を
-   * 使う横幅で——ユーザー指示。位置を選ぶタップの手順は無い）。項目は空欄の
-   * ままにし、後からテキスト道具でタップして書き込めるよう、道具をテキストに
-   * 切り替えておく。
-   *
-   * 呼ぶのは空のキャンバスから開く全画面のテンプレート選択（templatePicker.ts、
-   * 配線はmain.ts）。以前は道具バーのテンプレートボタン専用のprivateメソッドだったが、
-   * 選ぶUI自体が道具バーの外へ出たためpublicにした。
-   */
-  insertTemplate(id: TemplateId): void {
-    this.setTool("text");
-    this.onInsertTemplate?.(id);
-  }
-
-  // --- 左ブロック（ツール選択ブロック）：道具アイコン＋テンプレートを1列に -----
+  // --- 左ブロック（ツール選択ブロック）：道具アイコンを1列に -----
 
   private buildTools(): void {
     const tools = document.createElement("div");
@@ -318,31 +268,16 @@ export class Toolbar {
       const active = this.tool === tool;
       btn.setAttribute("aria-pressed", String(active));
       btn.dataset.active = String(active);
-      btn.disabled = this.toolRestrictedTo !== null && tool !== this.toolRestrictedTo;
     }
   }
 
-  /** 共同アイデア出しセッションのフェーズ③(投票)専用: 指定した道具以外を
-   *  押せなく＆薄くする（issue #59の投票ジェスチャーは「選択」道具で行うため、
-   *  投票中はそれ以外の道具で描画・消去できてしまわないようにする、
-   *  issue #79）。nullで解除。今の道具が許可対象でなければ、その道具へ
-   *  強制的に切り替える——押せないボタンが選択中のまま残らないように。 */
-  setOnlyToolEnabled(tool: ToolbarTool | null): void {
-    this.toolRestrictedTo = tool;
-    if (tool !== null && this.tool !== tool) {
-      this.setTool(tool);
-      return; // setTool内のsyncAll()がsyncPill()も呼ぶため二重には呼ばない
-    }
-    this.syncPill();
-  }
-
-  /** 道具ボタンにホバー用の小さな案内（ペン／マーカー／テキスト／選択／なぞる／
-   *  消しゴム）を付ける（ユーザー指示）。既存のテンプレートメニュー等と同じ
+  /** 道具ボタンにホバー用の小さな案内（ペン／マーカー／テキスト／選択／
+   *  消しゴム）を付ける（ユーザー指示）。既存の他ポップオーバーと同じ
    *  .icon-popoverの見た目・フェード（createFadeVisibility）をそのまま流用し、
    *  1単語だけの案内なので.tool-tooltipで詰まった見た目に整える。タッチでは
    *  「押さずに触れる」状態が無く、タップの前後にちらつくだけになってしまう
    *  ため、pointerType==="mouse"のときだけ働かせる（PCに限る、というユーザー
-   *  指示。revive情報のホバー表示と同じ考え方）。 */
+   *  指示）。 */
   private attachToolTooltip(btn: HTMLButtonElement, label: string): void {
     const tooltip = document.createElement("span");
     tooltip.className = "icon-popover tool-tooltip";
@@ -363,8 +298,7 @@ export class Toolbar {
    *  グリッド行を高さ0まで畳んでもその分だけ隙間が残ってしまうため
    *  （padding/borderはoverflow:hiddenで隠せる「中身」に含まれない）、
    *  見た目（.control-block）は内側のカードに持たせ、この要素自体は
-   *  中身に応じて0まで縮められる素の器にしておく（#duration-slotと
-   *  .duration-seekbarの関係と同じ構造）。 */
+   *  中身に応じて0まで縮められる素の器にしておく。 */
   private buildDetails(): void {
     const details = document.createElement("div");
     details.className = "toolbar-details";
@@ -523,7 +457,7 @@ export class Toolbar {
    *  ため、グレーアウトのまま残すと3段階ボタンの隣に無意味な色パレットが
    *  居座って見える（ユーザー指摘：消しゴムでは色の固定部分を表示しないでほしい）。 */
   private syncSwatch(): void {
-    const enabled = (this.tool === "pen" || this.tool === "marker" || this.tool === "text") && !this.colorLocked;
+    const enabled = this.tool === "pen" || this.tool === "marker" || this.tool === "text";
     this.swatchRow.hidden = this.tool === "eraser";
     const presets = this.activePresetInks();
     const color = this.getColor();
@@ -572,27 +506,6 @@ export class Toolbar {
   private syncAll(): void {
     this.syncPill();
     this.syncEraserSizeSteps();
-    this.syncSwatch();
-  }
-
-  /**
-   * 振り返りスライダーで過去に遡っている間は道具を使えなくする（ユーザー指示：
-   * 遡り中はグレーアウトでよい）。触れない・薄いことで無効だと分かるようにする、
-   * という既存のDurationSelector/振り返りシークバーの無効表示と同じ考え方
-   * （style.cssの.toolbar-disabled参照）。
-   */
-  setEnabled(enabled: boolean): void {
-    this.el.classList.toggle("toolbar-disabled", !enabled);
-  }
-
-  /**
-   * 共同アイデア出しセッションのフェーズ①②の間、色がセッション側から強制される
-   * （実際に使われる色の上書きはsmuiView.tsが行う）。ここではスワッチ・カラー
-   * ピッカーを押せなくして、触っても実際の色には反映されないことを示すだけ
-   * （誤操作防止、ユーザーが「押したのに変わらない」と混乱しないため）。
-   */
-  setColorLocked(locked: boolean): void {
-    this.colorLocked = locked;
     this.syncSwatch();
   }
 }
