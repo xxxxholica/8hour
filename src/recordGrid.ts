@@ -1,3 +1,4 @@
+import { CANVAS_FRAME_SHAPE } from "./frameShape";
 import { createFadeVisibility } from "./fadeVisibility";
 import { renderMemoThumbnail } from "./memoRenderer";
 import { listArchivedDateKeys, loadArchive } from "./storage";
@@ -25,6 +26,9 @@ import { listArchivedDateKeys, loadArchive } from "./storage";
  *  style.css .record-grid-thumb側のCSS指定に合わせておくこと）。 */
 const THUMBNAIL_SIZE_PX = 96;
 
+/** 空状態（過去の記録が1件も無い）で見せるシルエットの一辺（CSSピクセル）。 */
+const EMPTY_SILHOUETTE_SIZE_PX = 168;
+
 let overlay: RecordGrid | null = null;
 
 /** onSelectDateは、セルをタップして画面を閉じた直後に一度だけ、選ばれた
@@ -39,6 +43,7 @@ class RecordGrid {
   private sheet: HTMLElement;
   private grid: HTMLElement;
   private emptyState: HTMLElement;
+  private emptySilhouette: HTMLCanvasElement;
   private setVisible: (show: boolean) => void;
   private opened = false;
   private lastFocused: HTMLElement | null = null;
@@ -76,9 +81,17 @@ class RecordGrid {
     head.append(title, closeBtn);
     this.sheet.appendChild(head);
 
-    this.emptyState = document.createElement("p");
+    // 空状態（ユーザー指示）：主役は文言ではなく、円相のキャンバスと同じ
+    // 角丸正方形（CANVAS_FRAME_SHAPE）を薄い輪郭線だけで置いたシルエット。
+    // 案内文はその下に控えめに添えるだけにする。
+    this.emptyState = document.createElement("div");
     this.emptyState.className = "record-grid-empty";
-    this.emptyState.textContent = "まだ記録がありません";
+    this.emptySilhouette = document.createElement("canvas");
+    this.emptySilhouette.className = "record-grid-empty-silhouette";
+    const emptyCaption = document.createElement("p");
+    emptyCaption.className = "record-grid-empty-caption";
+    emptyCaption.textContent = "まだ記録がありません";
+    this.emptyState.append(this.emptySilhouette, emptyCaption);
     this.emptyState.hidden = true;
     this.sheet.appendChild(this.emptyState);
 
@@ -99,6 +112,12 @@ class RecordGrid {
     const dateKeys = listArchivedDateKeys().sort((a, b) => b.localeCompare(a));
     this.emptyState.hidden = dateKeys.length > 0;
     this.grid.hidden = dateKeys.length === 0;
+    if (dateKeys.length === 0) {
+      // 開くたびに描き直す——ライト/ダークの切り替えで輪郭線の色
+      // （currentColor由来ではなくcanvasに焼き込む色）が変わり得るため。
+      renderEmptySilhouette(this.emptySilhouette);
+      return;
+    }
     for (const dateKey of dateKeys) {
       this.grid.appendChild(this.buildCell(dateKey));
     }
@@ -160,4 +179,40 @@ class RecordGrid {
 function formatCellDateLabel(dateKey: string): string {
   const [, m, d] = dateKey.split("-").map(Number);
   return `${m}月${d}日`;
+}
+
+/** UI装飾用の薄いインク色（メモ本体のインク色とは無関係）。usageGuide.tsの
+ *  guideInkColor()と同じ考え方で、テーマのCSS変数から読む。 */
+function silhouetteInkColor(): string {
+  return (
+    getComputedStyle(document.documentElement).getPropertyValue("--ink-35").trim() ||
+    "oklch(22% 0.012 55 / 0.35)"
+  );
+}
+
+/**
+ * 空状態（過去の記録が1件も無い）で見せる、円相のキャンバスと同じ角丸正方形
+ * （CANVAS_FRAME_SHAPE）のシルエット。塗りつぶさず薄い輪郭線だけを描く
+ * （ユーザー指示：主役はシルエットにしたい）——実際のメモは一切描かない。
+ */
+function renderEmptySilhouette(canvas: HTMLCanvasElement): void {
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  const size = EMPTY_SILHOUETTE_SIZE_PX;
+  canvas.width = size * dpr;
+  canvas.height = size * dpr;
+  canvas.style.width = `${size}px`;
+  canvas.style.height = `${size}px`;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, size, size);
+
+  const lineWidth = 3;
+  const half = size / 2 - lineWidth;
+  ctx.save();
+  ctx.translate(size / 2, size / 2);
+  ctx.lineWidth = lineWidth;
+  ctx.strokeStyle = silhouetteInkColor();
+  ctx.stroke(CANVAS_FRAME_SHAPE.buildPath(half));
+  ctx.restore();
 }

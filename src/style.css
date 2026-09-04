@@ -1652,8 +1652,25 @@ body {
   background: var(--paper-2);
 }
 
+/* --- 空状態（過去の記録が1件も無い、recordGrid.ts renderEmptySilhouette）。
+   主役は文言ではなく、円相のキャンバスと同じ角丸正方形のシルエット
+   （薄い輪郭線のみ）にする（ユーザー指示）——案内文はその下に控えめに
+   添えるだけ。 --- */
 .record-grid-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
   margin: var(--space-6) 0;
+}
+
+.record-grid-empty-silhouette {
+  display: block;
+}
+
+.record-grid-empty-caption {
+  margin: 0;
   text-align: center;
   color: var(--ink-55);
   font-size: var(--text-sm);
