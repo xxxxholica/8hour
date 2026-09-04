@@ -1603,10 +1603,16 @@ body {
   background: color-mix(in oklch, var(--paper-2) 86%, transparent);
 }
 
+/* 窓の大きさ・形は記録の件数に関わらず常に一定にする（ユーザー指示）——
+   中身のグリッド（.record-grid-cells）自体が「1ページあたりの枠数」固定の
+   グリッドになったため、この器もwidth: min(64rem, 100%)のような画面幅
+   いっぱいに広げる指定はやめ、中身にフィットするfit-contentにする
+   （件数が変わってもページ送りするだけで、器自体は伸び縮みしない）。 */
 .record-grid-sheet {
   display: flex;
   flex-direction: column;
-  width: min(64rem, 100%);
+  width: fit-content;
+  max-width: 92vw;
   max-height: calc(100dvh - 48px);
   padding: var(--space-4) var(--space-5);
   border-radius: 24px;
@@ -1656,39 +1662,16 @@ body {
   background: var(--paper-2);
 }
 
-/* --- 空状態（過去の記録が1件も無い、recordGrid.ts renderEmptySilhouette）。
-   主役は文言ではなく、円相のキャンバスと同じ角丸正方形のシルエット
-   （薄い輪郭線のみ）にする（ユーザー指示）——案内文はその下に控えめに
-   添えるだけ。 --- */
-.record-grid-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-3);
-  margin: var(--space-6) 0;
-}
-
-.record-grid-empty-silhouette {
-  display: block;
-}
-
-.record-grid-empty-caption {
-  margin: 0;
-  text-align: center;
-  color: var(--ink-55);
-  font-size: var(--text-sm);
-}
-
-/* --- グリッド本体。日付めくり画面（1日ずつ）より一度に見えるサムネイル数が
-   多くなる想定のため、画面幅に応じて列数が自動で増減するauto-fillにする。 --- */
+/* --- グリッド本体。1ページあたりの列数・行数は固定（デスクトップ3×3、
+   モバイル2×2、recordGrid.ts cellsPerPage）——件数に関わらず窓の大きさを
+   一定に保つため、列数（grid-template-columns）はrenderPage()が画面幅に
+   応じて都度inline styleで指定する（ここでは3列を初期値として持つが、
+   実際は必ずJS側の値で上書きされる）。 --- */
 .record-grid-cells {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  grid-template-columns: repeat(3, 120px);
   gap: var(--space-4);
   margin-top: var(--space-4);
-  padding-bottom: var(--space-2);
-  overflow-y: auto;
 }
 
 /* --- 1マス。グリッドは索引役に徹する（ユーザー指示）ため、タップして
@@ -1712,16 +1695,85 @@ body {
   background: var(--paper-2);
 }
 
+/* --- ダミーセル（recordGrid.ts buildDummyCell）：そのページの枠数に実データが
+   満たない分を埋める、中身の無いセル。クリック対象ではないため<div>で
+   （タブ移動・ホバー反応も持たせない）、見た目は空状態のシルエットと同じ
+   薄い輪郭線だけの角丸正方形にする（ユーザー指示）。 --- */
+.record-grid-cell--dummy {
+  cursor: default;
+}
+
+.record-grid-cell--dummy:hover {
+  background: none;
+}
+
+.record-grid-cell--dummy .record-grid-cell-label {
+  visibility: hidden;
+}
+
 /* 紙の輪郭に沿って浮かせる影は、本体キャンバス・過去めくり画面
-   （.archive-canvas）と同じ--canvas-shadowに揃える。 */
+   （.archive-canvas）と同じ--canvas-shadowに揃える。ダミーセルは実際の紙が
+   無い輪郭線だけのため、影は付けない。 */
 .record-grid-thumb {
   display: block;
   filter: var(--canvas-shadow);
 }
 
+.record-grid-thumb--dummy {
+  filter: none;
+}
+
 .record-grid-cell-label {
   font-size: var(--text-2xs);
   color: var(--ink-60);
+}
+
+/* --- ページめくり（recordGrid.ts、日付めくり帯#history-stripと近い見た目の
+   ◀ページ数▶）。1ページに収まる件数の時も常に表示し続け、活性状態
+   （disabled）だけで出し引きする——窓の大きさ・形を記録の件数に関わらず
+   常に一定にするため（ユーザー指示）、要素自体はレイアウトから消さない。 --- */
+.record-grid-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: var(--space-3);
+  flex: 0 0 auto;
+}
+
+.record-grid-page-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 1.625rem;
+  height: 1.625rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--ink-70);
+  font-size: var(--text-sm);
+  line-height: 1;
+  cursor: pointer;
+  transition: color var(--duration-fast) ease, opacity var(--duration-fast) ease;
+}
+
+.record-grid-page-btn:hover {
+  color: var(--ink-solid);
+}
+
+.record-grid-page-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+  pointer-events: none;
+}
+
+.record-grid-page-label {
+  min-width: 3.5em;
+  text-align: center;
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--ink-55);
 }
 
 /* --- 練習用サンドボックス（tutorialSandbox.ts）。本物の#canvas-wrap相当の
