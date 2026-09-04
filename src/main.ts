@@ -109,6 +109,19 @@ const primarySlot = document.querySelector<HTMLDivElement>("#primary-slot")!;
 const colorSwatchSlot = document.querySelector<HTMLDivElement>("#panel-swatch-slot")!;
 const recordGridTriggerSlot = document.querySelector<HTMLDivElement>("#record-grid-trigger-slot")!;
 
+// footer-tools-rowのalign-items:stretchで.control-panelと縦幅を揃えている
+// （ユーザー指摘：縦幅を揃えたい）が、CSSのaspect-ratioだけでは
+// flex-basis:autoの幅（コンテンツ由来）が優先され、正方形にならなかった
+// （ユーザー指摘：正方形にしたい、実装時に確認済みの挙動）。
+// syncAppFooterHeightVarと同じ考え方で、実際に決まった高さをそのまま幅に
+// 反映することで、CSSの挙動に頼らず確実に幅=高さの正方形にする。
+const syncRecordGridTriggerSquare = () => {
+  const height = recordGridTriggerSlot.getBoundingClientRect().height;
+  if (height > 0) recordGridTriggerSlot.style.width = `${height}px`;
+};
+new ResizeObserver(syncRecordGridTriggerSquare).observe(recordGridTriggerSlot);
+syncRecordGridTriggerSquare();
+
 const onToolChange = () => {
   canvasView.closeWritingSession();
   canvasView.finishTextEditingIfOpen();

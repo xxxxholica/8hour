@@ -750,6 +750,13 @@ body {
   align-items: center;
   justify-content: center;
   flex: none;
+  /* footer-tools-rowのalign-items:stretchで道具バーと同じ高さになるが、
+     幅は中身（ボタン）にフィットするだけだと幅<高さになってしまう
+     （ユーザー指摘：縦横比が1:1になっていない）。aspect-ratioだけでは
+     flex-basis:autoの幅（コンテンツ由来のまま）が優先されてしまい効かな
+     かったため（実装時に確認済み）、widthはmain.tsのResizeObserver
+     （syncRecordGridTriggerSquare）が実測した高さをそのままpxで書き込む形で
+     確実に正方形にしている——ここでは形（角丸等）だけを持たせる。 */
   padding: 0.4375rem;
   border-radius: var(--radius-lg);
   border: 1px solid var(--ink-12);
