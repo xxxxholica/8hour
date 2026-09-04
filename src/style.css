@@ -1682,7 +1682,11 @@ body {
 /* --- グリッド本体。3×3=9マス固定、デスクトップ・モバイル共通のレイアウト
    （ユーザー指示：2×2のモバイル分岐は廃止）——常に「日・月・火・水・木・金・
    土＋前の週へ＋次の週へ」の9項目で埋まる（recordGrid.ts renderWeek）。
-   セルの一辺（THUMBNAIL_SIZE_PX、recordGrid.ts）と揃えること。 --- */
+   列の幅は1マスの外形（サムネイル＋.record-grid-cellの左右padding、
+   recordGrid.ts thumbnailSizePx）と揃えること——日付ラベルはcanvas上に
+   直接描く（recordGrid.ts drawDateCaption）ため、セルの外形はサムネイルの
+   正方形＋均一paddingだけで決まり、9マスすべてが同じ正方形になる
+   （ユーザー指示）。 --- */
 .record-grid-cells {
   display: grid;
   grid-template-columns: repeat(3, 96px);
@@ -1692,15 +1696,16 @@ body {
 
 /* --- 1マス。グリッドは索引役に徹する（ユーザー指示）ため、タップして
    日付めくり画面のその日を開くだけの単純なボタンにする——プレビューや
-   ドラッグ等の操作はここでは一切持たせない。 --- */
+   ドラッグ等の操作はここでは一切持たせない。中身はサムネイル1枚だけ
+   （日付ラベルはcanvas上に直接描く）にすることで、9マス全てが完全に
+   同じ正方形サイズになる（ユーザー指示）。 --- */
 .record-grid-cell {
   appearance: none;
   border: none;
   background: none;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: var(--space-1);
+  justify-content: center;
   padding: var(--space-2);
   border-radius: var(--radius-md);
   cursor: pointer;
@@ -1723,36 +1728,18 @@ body {
   background: none;
 }
 
-.record-grid-cell--dummy .record-grid-cell-label {
-  visibility: hidden;
-}
-
 /* 紙の輪郭に沿って浮かせる影は、本体キャンバス・過去めくり画面
-   （.archive-canvas）と同じ--canvas-shadowに揃える。ダミーセルも罫線入りの
-   紙になったため、実セルと同じ影でよい。 */
+   （.archive-canvas）と同じ--canvas-shadowに揃える。実セル・ダミーセルとも
+   罫線入りの紙になったため、同じ影でよい。 */
 .record-grid-thumb {
   display: block;
   filter: var(--canvas-shadow);
 }
 
-/* line-heightを明示の数値にしておく——既定（normal）のままだと、実際の
-   行の高さがその行に含まれる文字のフォント固有の縦方向メトリクスに左右
-   され、日本語の日付（例:「8月31日」）が入った実セルの行と、中身が半角
-   スペース1文字だけのダミーセルの行とで高さが変わってしまっていた
-   （実装時に発見：CJK文字は半角スペースよりascent/descentが大きく、
-   normalの行高が伸びる）。窓の大きさ・形は記録の件数・内容に関わらず
-   常に一定にする（ユーザー指示）ため、行の高さを文字種に依存させない。 */
-.record-grid-cell-label {
-  font-size: var(--text-2xs);
-  line-height: 1.4;
-  color: var(--ink-60);
-}
-
 /* --- 週送りセル（recordGrid.ts buildNavCell）。日〜土の7マスと同じグリッドの
    8・9番目のマスとして埋め込む——紙質の実セル・ダミーセルとは見た目で明確に
    区別するため、黒背景＋白い矢印グリフにする（ユーザー指示）。グリッドの
-   既定（stretch）により、同じ行の紙セル（サムネイル＋ラベル分の高さ）と
-   自動的に高さが揃う。 --- */
+   既定（stretch）により、同じ行の紙セルと自動的に同じ正方形サイズになる。 --- */
 .record-grid-nav-cell {
   background: var(--ink-solid);
   color: var(--paper-1);
@@ -1785,39 +1772,35 @@ body {
    負けてしまう（実装時に発生した不具合）。
    タイトル（週の日付範囲、recordGrid.ts renderWeek）は、グリッドの高さに
    上乗せする通常の行としてではなく、外枠の余白（padding）の中に
-   position:absoluteで浮かせて置く——グリッド自体は3×3で幅=高さの正方形の
-   ため、これを「高さだけを追加する行」として積まなければ、余白(P)×2＋
-   グリッドの一辺という同じ式で幅も高さも決まり、外枠全体が正方形になる。
-   角丸は本体キャンバス（CANVAS_FRAME_SHAPE）を基準にしつつ、実際に並べた
-   見た目で微調整した値（下記）にしている。 --- */
+   position:absoluteで浮かせて置く——日付ラベルをセルのcanvas上に直接描く
+   形にしたことで（recordGrid.ts drawDateCaption）9マスすべてが完全な
+   正方形になり、グリッド自体も3×3で幅=高さの正方形になったため、外枠の
+   余白は上下左右均一のままでよい（以前は縦積みの日付ラベル分だけ左右の
+   余白を広げて帳尻を合わせていたが、その必要が無くなった）。角丸は本体
+   キャンバス（CANVAS_FRAME_SHAPE）と揃えつつ、実際に並べた見た目で
+   微調整した値（下記）にしている。 --- */
 @media (min-width: 481px) {
-  /* 1マスが「サムネイル＋日付ラベル」の縦積みのため、セル自体は幅より
-     高さの方が大きくなる（ラベル分の高さが横方向には無い）。グリッドは
-     幅fit-content（.record-grid-sheetの既定）で自然な大きさに収まるため、
-     外枠を正方形にするには、その分だけ左右の余白を上下より広げて帳尻を
-     合わせる——実測（グリッド width 602px / height 712px）から、上下40px・
-     左右95pxで幅・高さとも792pxになることを確認済み。角丸は当初
-     CANVAS_FRAME_SHAPEの比率通り15%にしていたが、実際に本体キャンバスと
-     並べると風船のように丸すぎたため（ユーザー指摘）、計算式ではなく
-     見た目で本体キャンバスに近づくよう11%まで下げて調整している。 */
+  /* セル一辺206px（サムネイル190px＋.record-grid-cellの左右padding16px）×
+     3列＋隙間2×16pxでグリッド650px四方（正方形）。上下左右均一のpadding
+     40pxを足して窓全体を730px四方にする。 */
   .record-grid-sheet {
-    padding: 40px 95px;
+    padding: 40px;
     border-radius: 11%;
     justify-content: center;
   }
 
-  /* heightを外枠の上下padding（40px）と同じ値に固定することで、タイトル行の
+  /* heightを外枠のpadding（40px）と同じ値に固定することで、タイトル行の
      箱自体をこの帯にきっちり収める——中身（ボタンの高さ等）に応じて箱の
      高さが変わる形にすると、位置決めがtop:0のままでは帯からはみ出してグリッド
-     と重なってしまう（実装時に発生した不具合）。左右のpaddingは.record-grid-sheet
-     と同じ95pxにして、グリッドの左右端と揃える。 */
+     と重なってしまう（実装時に発生した不具合）。左右のpaddingも
+     .record-grid-sheetと同じ40pxにして、グリッドの左右端と揃える。 */
   .record-grid-head {
     position: absolute;
     top: 0;
     left: 0;
     right: 0;
     height: 40px;
-    padding: 0 95px;
+    padding: 0 40px;
   }
 
   .record-grid-title {
@@ -1831,15 +1814,9 @@ body {
   }
 
   .record-grid-cells {
-    grid-template-columns: repeat(3, 190px);
+    grid-template-columns: repeat(3, 206px);
     gap: 1rem;
     margin-top: 0;
-  }
-
-  /* セル自体が96px→190pxへ大きくなった分、日付ラベルも比例して見やすい
-     大きさにする。 */
-  .record-grid-cell-label {
-    font-size: var(--text-xs);
   }
 }
 

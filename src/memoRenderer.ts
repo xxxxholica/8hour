@@ -1,4 +1,5 @@
 import { CANVAS_FRAME_SHAPE } from "./frameShape";
+import { drawRuledPaper } from "./paper";
 import { fontPxForRender, LINE_HEIGHT_MULTIPLIER, TEXT_FONT_FAMILY } from "./textLayout";
 import { toolRenderStyle } from "./toolStyle";
 import type { Memo } from "./types";
@@ -79,16 +80,24 @@ export function renderMemoAt(
 }
 
 /**
- * メモの一覧（1日分のアーカイブ等）を、白紙＋本体キャンバスと同じ角丸正方形
+ * メモの一覧（1日分のアーカイブ等）を、本体キャンバスと同じ角丸正方形
  * （CANVAS_FRAME_SHAPE）に収めた正方形のサムネイルとしてcanvasへ描く。
  * ラスター画像は一切保持していないため、保存済みのベクターデータ（正規化座標の
  * ストローク・テキスト）をrenderMemoAtでそのままsizePxへ再描画する——保存側の
  * 解像度に縛られず劣化なく任意の大きさで描ける。記録一覧画面（recordGrid.ts）
  * のグリッドと、道具バーの独立トリガー（toolbar.ts）のミニアイコンの両方から
- * 共通で使う。日付めくり画面（ArchiveCanvas）と違いこの大きさでは罫線
- * （drawRuledPaper）が潰れて見えるだけなので描かず、白背景＋インクだけにする。
+ * 共通で使う。
+ * withRuledPaperは背景に本体キャンバスと同じ罫線入りの紙（drawRuledPaper）を
+ * 敷くかどうか——道具バーの極小トリガー（26px）ではこの大きさだと罫線が潰れて
+ * 見えるだけなので既定でfalse（白背景のみ）、記録一覧画面のグリッドセルでは
+ * ダミーセル（罫線入りの紙＋曜日バッジ）と見た目を揃えるためtrueを渡す。
  */
-export function renderMemoThumbnail(canvas: HTMLCanvasElement, memos: readonly Memo[], sizePx: number): void {
+export function renderMemoThumbnail(
+  canvas: HTMLCanvasElement,
+  memos: readonly Memo[],
+  sizePx: number,
+  withRuledPaper = false
+): void {
   const dpr = Math.max(1, window.devicePixelRatio || 1);
   canvas.width = sizePx * dpr;
   canvas.height = sizePx * dpr;
@@ -104,8 +113,12 @@ export function renderMemoThumbnail(canvas: HTMLCanvasElement, memos: readonly M
   ctx.save();
   ctx.translate(half, half);
   ctx.clip(CANVAS_FRAME_SHAPE.buildPath(half));
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(-half, -half, sizePx, sizePx);
+  if (withRuledPaper) {
+    drawRuledPaper(ctx, half);
+  } else {
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(-half, -half, sizePx, sizePx);
+  }
   for (const memo of memos) {
     if (memo.status !== "active") continue;
     renderMemoAt(ctx, memo, half, 1);

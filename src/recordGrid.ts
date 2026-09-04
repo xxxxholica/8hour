@@ -59,7 +59,7 @@ const DESKTOP_BREAKPOINT_QUERY = "(min-width: 481px)";
  *  画面幅で切り替える。style.css .record-grid-cellsのgrid-template-columns
  *  と値を揃えること。 */
 function thumbnailSizePx(): number {
-  return window.matchMedia(DESKTOP_BREAKPOINT_QUERY).matches ? 190 : 96;
+  return window.matchMedia(DESKTOP_BREAKPOINT_QUERY).matches ? 190 : 80;
 }
 
 /** 日曜(0)始まりの曜日ラベル。 */
@@ -235,15 +235,19 @@ class RecordGrid {
       onSelectDate?.(dateKey);
     });
 
+    // 日付ラベルは別要素（下に積む<span>等）にせず、サムネイルと同じcanvasに
+    // 直接描く——セルの見た目の大きさをサムネイル＝正方形とぴったり一致させる
+    // ため（ユーザー指示：9マス全てを完全に同じ正方形サイズにしたい。別要素
+    // にすると、その分の高さが上乗せされて縦長になってしまっていた）。
+    // withRuledPaper=trueで、ダミーセル（罫線入りの紙＋曜日バッジ）と同じ
+    // 罫線入りの紙を背景にする——実データがあってもインクの線が細くて目立たず
+    // 「空白に見える」という指摘への対応も兼ねる。
     const canvas = document.createElement("canvas");
     canvas.className = "record-grid-thumb";
     btn.appendChild(canvas);
-    renderMemoThumbnail(canvas, loadArchive(dateKey), thumbnailSizePx());
-
-    const label = document.createElement("span");
-    label.className = "record-grid-cell-label";
-    label.textContent = formatCellDateLabel(dateKey);
-    btn.appendChild(label);
+    const size = thumbnailSizePx();
+    renderMemoThumbnail(canvas, loadArchive(dateKey), size, true);
+    drawDateCaption(canvas, size, formatCellDateLabel(dateKey));
 
     return btn;
   }
@@ -342,6 +346,29 @@ function themeColor(varName: string, fallback: string): string {
 }
 
 /**
+ * 実セルの日付ラベルを、サムネイルの下端にcanvas上へ直接描く。別要素
+ * （<span>を下に積む形）にすると、その分の高さがセルに上乗せされて
+ * サムネイルの正方形からズレてしまう（ユーザー指示：9マス全てを完全に
+ * 同じ正方形サイズにしたい）——renderMemoThumbnail呼び出し後、同じcanvas
+ * （dpr分のsetTransformは維持されたまま）に追い描きする。
+ */
+function drawDateCaption(canvas: HTMLCanvasElement, sizePx: number, text: string): void {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const half = sizePx / 2;
+  ctx.save();
+  ctx.translate(half, half);
+  ctx.clip(CANVAS_FRAME_SHAPE.buildPath(half));
+  const fontPx = Math.max(9, Math.round(half * 0.13));
+  ctx.font = `500 ${fontPx}px "Noto Sans JP", sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = themeColor("--ink-55", "oklch(22% 0.012 55 / 0.55)");
+  ctx.fillText(text, 0, half - fontPx * 0.7);
+  ctx.restore();
+}
+
+/**
  * ダミーセル（実データの無い曜日を埋める、中身の無いセル）のサムネイル。
  * 本体キャンバスと同じ罫線入りの紙（drawRuledPaper、CANVAS_FRAME_SHAPEで
  * クリップ）の上に、曜日バッジ（丸＋文字）を重ねて描く（ユーザー指示）。
@@ -413,10 +440,11 @@ function drawWeekdayBadge(
   ctx.restore();
 }
 
-/** 実セル（buildCell）と同じ見た目の骨格（サムネイル＋ラベル欄）にすることで、
- *  同じ行に実セルと混在してもグリッドの行の高さが揃う。クリック・フォーカス
- *  対象ではないため<button>ではなく<div>にし、aria-hidden・空のラベルで
- *  スクリーンリーダー・タブ移動からは見えないようにする。 */
+/** 実セル（buildCell）と同じ見た目の骨格（canvas1つだけ）にすることで、
+ *  同じ行に実セルと混在してもグリッドの行の高さ・幅が完全に一致し、9マス
+ *  すべてが同じ正方形になる（ユーザー指示）。クリック・フォーカス対象では
+ *  ないため<button>ではなく<div>にし、aria-hiddenでスクリーンリーダー・
+ *  タブ移動からは見えないようにする。 */
 function buildWeekdayDummyCell(weekday: number): HTMLElement {
   const cell = document.createElement("div");
   cell.className = "record-grid-cell record-grid-cell--dummy";
@@ -426,17 +454,6 @@ function buildWeekdayDummyCell(weekday: number): HTMLElement {
   canvas.className = "record-grid-thumb record-grid-thumb--dummy";
   cell.appendChild(canvas);
   renderDummyThumbnail(canvas, weekday);
-
-  // 半角スペース1文字だと、ブラウザの空白畳み込みでラベルの行自体が
-  // 0×0に潰れてしまい、日付が入った実セルと同じ行にある時だけその行が
-  // （実セルの高さに合わせて）伸びてしまっていた（実装時に発見：グリッドの
-  // 高さが記録の中身によって変わってしまう不具合——ユーザー指示：窓の
-  // 大きさ・形は常に一定にしたい）。折り返し不可の空白（&nbsp;）にすることで
-  // 畳み込まれず、実セルの日付ラベルと同じ行の高さを常に確保できる。
-  const label = document.createElement("span");
-  label.className = "record-grid-cell-label";
-  label.textContent = " ";
-  cell.appendChild(label);
 
   return cell;
 }
