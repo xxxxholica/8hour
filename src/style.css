@@ -751,6 +751,16 @@ body {
   gap: 0.375rem;
 }
 
+/* --- 記録一覧画面（recordGrid.ts）を開く独立トリガー（toolbar.ts
+   buildRecordGridTrigger）。既存の道具選択ボタン群（.toolbar-pill）には
+   加えず、.toolbarの直接の子として並べる——.toolbar自体のgap（.toolbar-tools
+   との間）だけで隙間を空け、道具の切り替えとは別物であることを見た目でも
+   分離する（ユーザー指示）。見た目自体は他の道具ボタンと同じ.toolbar-btnを
+   共有し、選択状態（data-active）だけ持たない。 --- */
+.toolbar-record-grid-btn {
+  flex: none;
+}
+
 /* --- 設定メニューのテーマ選択行だけ、間隔は詰めてボタン自体を大きくする
    （ユーザー指示：間隔を小さくする代わりに選択するボタンを大きく）。
    ツールバー下部の色スワッチ（.toolbar-swatch、道具として頻繁に押す小さな
@@ -1529,6 +1539,127 @@ body {
     width: 6rem;
     height: 6rem;
   }
+}
+
+/* --- 記録一覧画面（recordGrid.ts）。書き込みのあった日だけを新しい日順の
+   グリッドで見せる、設定メニュー・日付めくり画面とは独立した全画面
+   オーバーレイ（ユーザー指示：円相の「一覧・検索UIを持たない」原則の明示的な
+   例外）。骨格・フェード（.fade-visible/.is-visible）はusage-guideと同じ
+   仕組みを流用するが、中身は読み物ではなくグリッドそのものなので、シート幅は
+   読み物用の42.5remより大きく、縦方向もできるだけ広く使う。 --- */
+.record-grid {
+  position: fixed;
+  inset: 0;
+  z-index: 41;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6) var(--space-4);
+  background: color-mix(in oklch, var(--paper-2) 86%, transparent);
+}
+
+.record-grid-sheet {
+  display: flex;
+  flex-direction: column;
+  width: min(64rem, 100%);
+  max-height: calc(100dvh - 48px);
+  padding: var(--space-4) var(--space-5);
+  border-radius: 24px;
+  border: 1px solid var(--ink-12);
+  background: var(--paper-1);
+  box-shadow: var(--shadow-popover);
+  transform: translateY(8px) scale(0.985);
+  transition: transform var(--duration-base) ease;
+  outline: none;
+}
+
+.record-grid.is-visible .record-grid-sheet {
+  transform: none;
+}
+
+.record-grid-head {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.record-grid-title {
+  font-family: "Klee One", "Noto Sans JP", sans-serif;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  margin: 0;
+}
+
+/* usage-guide-closeと同じ見た目（ユーザー指示：全画面モーダルの骨格を揃える）。 */
+.record-grid-close {
+  appearance: none;
+  border: none;
+  background: none;
+  margin-left: auto;
+  flex: 0 0 auto;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--radius-full);
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--ink-60);
+  cursor: pointer;
+  transition: background-color var(--duration-fast) ease;
+}
+
+.record-grid-close:hover {
+  background: var(--paper-2);
+}
+
+.record-grid-empty {
+  margin: var(--space-6) 0;
+  text-align: center;
+  color: var(--ink-55);
+  font-size: var(--text-sm);
+}
+
+/* --- グリッド本体。日付めくり画面（1日ずつ）より一度に見えるサムネイル数が
+   多くなる想定のため、画面幅に応じて列数が自動で増減するauto-fillにする。 --- */
+.record-grid-cells {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+  padding-bottom: var(--space-2);
+  overflow-y: auto;
+}
+
+/* --- 1マス。グリッドは索引役に徹する（ユーザー指示）ため、タップして
+   日付めくり画面のその日を開くだけの単純なボタンにする——プレビューや
+   ドラッグ等の操作はここでは一切持たせない。 --- */
+.record-grid-cell {
+  appearance: none;
+  border: none;
+  background: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background-color var(--duration-fast) ease;
+}
+
+.record-grid-cell:hover {
+  background: var(--paper-2);
+}
+
+/* 紙の輪郭に沿って浮かせる影は、本体キャンバス・過去めくり画面
+   （.archive-canvas）と同じ--canvas-shadowに揃える。 */
+.record-grid-thumb {
+  display: block;
+  filter: var(--canvas-shadow);
+}
+
+.record-grid-cell-label {
+  font-size: var(--text-2xs);
+  color: var(--ink-60);
 }
 
 /* --- 練習用サンドボックス（tutorialSandbox.ts）。本物の#canvas-wrap相当の
