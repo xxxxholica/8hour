@@ -1,26 +1,49 @@
+import { dateKeyFor, shiftDateKey } from "./dailyReset";
 import { createFadeVisibility } from "./fadeVisibility";
 import { notifyClose, notifyOpen } from "./exclusivePopover";
 import { ICONS } from "./icons";
 import { renderMemoThumbnail } from "./memoRenderer";
-import { listArchivedDateKeys, loadArchive } from "./storage";
+import { dayOfWeek, drawWeekdayBadge } from "./recordGrid";
+import { loadArchive } from "./storage";
 import { DEFAULT_FONT_SIZE_STEP, FONT_SIZE_STEPS } from "./textLayout";
 import { PEN_LINE_WIDTH } from "./toolStyle";
 import type { DrawTool } from "./types";
 
-/** 記録一覧画面（recordGrid.ts）への独立トリガーの器と、開いた時に呼ぶ
+/** 記録一覧画面（recordGrid.ts）への独立トリガーの器と、押した時に呼ぶ
  *  コールバック。containerは.toolbar（道具選択のピル）とは別の、呼び出し側
  *  （main.ts）が用意する独立したカード要素——ここに差し込むことで、道具選択
  *  ボタン群とは背景・角丸を共有しない見た目にする（ユーザー指示：完全に別で
- *  見えるようにしたい）。 */
+ *  見えるようにしたい）。押すたびに開閉が入れ替わるトグルボタン（ユーザー
+ *  指示：×ボタンを持たず、同じボタンをもう一度押すと閉じるiOS/Androidの
+ *  アプリ切り替え画面のような操作感にしたい）——「今開いているかどうか」の
+ *  判定・状態管理はonToggleの呼び出し側（main.ts）が持つ。 */
 export interface RecordGridTriggerOptions {
   container: HTMLElement;
-  onOpen: () => void;
+  onToggle: () => void;
 }
 
 /** トリガー内のサムネイル（過去の記録が1件以上ある場合の直近日プレビュー）の
  *  一辺（CSSピクセル）。ボタン本体（.toolbar-btn、2.375rem=38px）の内側に
  *  収まる大きさにする。 */
 const RECORD_GRID_TRIGGER_THUMB_SIZE_PX = 26;
+
+/** 昨日のキャンバスに何も書き込まれていない時の記録一覧トリガーの中身。
+ *  紙の背景は描かず（26px四方と小さく、罫線入り紙を敷くと潰れて見えるため）、
+ *  記録一覧のダミーセルと同じ円形の曜日バッジ（recordGrid.ts
+ *  drawWeekdayBadge）だけをボタンいっぱいに描く。 */
+function renderEmptyYesterdayBadge(canvas: HTMLCanvasElement, dateKey: string): void {
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  const size = RECORD_GRID_TRIGGER_THUMB_SIZE_PX;
+  canvas.width = size * dpr;
+  canvas.height = size * dpr;
+  canvas.style.width = `${size}px`;
+  canvas.style.height = `${size}px`;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const half = size / 2;
+  drawWeekdayBadge(ctx, half, half, half, dayOfWeek(dateKey));
+}
 
 /** "none"は「道具なし」（選択中の道具をもう一度押して解除した状態、
  *  ユーザー指示）。ボタンには対応せず、setTool内部でだけ使う——canvasView.ts
@@ -319,43 +342,50 @@ export class Toolbar {
     }
   }
 
-  /** 記録一覧画面（recordGrid.ts）を開くトリガー。既存のツール選択ボタン群
+  /** 記録一覧画面（recordGrid.ts）の開閉トリガー。既存のツール選択ボタン群
    *  （.toolbar-pill、道具バー本体）とは別に、呼び出し側が用意した独立カード
    *  （options.container、main.tsの#record-grid-trigger-slot）へ差し込む——
    *  DOM上も見た目上も道具バーとは別物にする（ユーザー指示：完全に別で
-   *  見えるようにしたい）。トグルで選択状態を持つ道具ボタンと違い、押すたびに
-   *  画面を開くだけの一過性の操作のため、toolButtonsには含めずaria-pressed等も
-   *  持たせない。 */
+   *  見えるようにしたい）。押すたびに開閉が入れ替わるが、「今開いているか」の
+   *  状態自体はonToggleの呼び出し側（main.ts）が持つため、道具ボタン
+   *  （toolButtons）のようなaria-pressedでの押下状態表示はここでは持たせない。 */
   private buildRecordGridTrigger(options: RecordGridTriggerOptions): void {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "toolbar-btn record-grid-trigger-btn";
     btn.setAttribute("aria-label", "過去の記録");
-    btn.addEventListener("click", () => options.onOpen());
+    btn.addEventListener("click", () => options.onToggle());
     this.attachToolTooltip(btn, "過去の記録");
     options.container.appendChild(btn);
     this.recordGridTriggerBtn = btn;
     this.refreshRecordGridTrigger();
   }
 
-  /** トリガーの中身を最新状態に合わせて描き直す。過去の記録が1件以上あれば
-   *  直近（最新）のarchive日付のキャンバス内容を小さく縮小レンダリングした
-   *  サムネイルを、1件も無ければ固定のグリッドアイコン（ICONS.recordGrid）を
-   *  表示する（ユーザー指示）。朝リセットで新しい記録が増えた直後にも呼べる
-   *  よう公開メソッドにしてある（main.tsのvisibilitychangeハンドラ参照）。 */
+  /** トリガーの中身を最新状態に合わせて描き直す。1日前（昨日）のキャンバスに
+   *  書き込みがあれば、その内容を小さく縮小レンダリングしたサムネイルを表示
+   *  する。昨日に何も書かれていなければ（archiveされていなければ）、記録
+   *  一覧のダミーセル（recordGrid.ts drawWeekdayBadge）と同じ、昨日の曜日を
+   *  示す円形バッジを表示する（ユーザー指示：一日前のキャンバスに何も書き
+   *  込まれていない場合は円形に曜日の文字を出す方式にしたい）——以前は
+   *  「過去の記録が1件も無ければ固定のグリッドアイコン」という別扱いだったが、
+   *  昨日を基準にした円形バッジがその場合（archiveが1件も無ければ昨日も
+   *  当然空）も自然に包含するため、固定アイコンの出番自体が無くなった。
+   *  朝リセットで新しい記録が増えた直後にも呼べるよう公開メソッドにしてある
+   *  （main.tsのvisibilitychangeハンドラ参照）。 */
   refreshRecordGridTrigger(): void {
     const btn = this.recordGridTriggerBtn;
     if (!btn) return;
-    const latestDateKey = listArchivedDateKeys().sort().at(-1);
-    if (!latestDateKey) {
-      btn.innerHTML = ICONS.recordGrid;
-      return;
-    }
+    const yesterdayKey = shiftDateKey(dateKeyFor(new Date()), -1);
+    const memos = loadArchive(yesterdayKey);
     btn.innerHTML = "";
     const canvas = document.createElement("canvas");
     canvas.className = "record-grid-trigger-thumb";
     btn.appendChild(canvas);
-    renderMemoThumbnail(canvas, loadArchive(latestDateKey), RECORD_GRID_TRIGGER_THUMB_SIZE_PX);
+    if (memos.length === 0) {
+      renderEmptyYesterdayBadge(canvas, yesterdayKey);
+    } else {
+      renderMemoThumbnail(canvas, memos, RECORD_GRID_TRIGGER_THUMB_SIZE_PX);
+    }
   }
 
   /** 道具ボタンにホバー用の小さな案内（ペン／マーカー／テキスト／選択／

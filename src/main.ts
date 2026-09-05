@@ -4,7 +4,7 @@ import { CircularCanvas } from "./canvasView";
 import { createFadeVisibility, FADE_TRANSITION_MS } from "./fadeVisibility";
 import { daysBetween, dateKeyFor, performDailyResetIfNeeded, shiftDateKey } from "./dailyReset";
 import { MemoStore } from "./memoStore";
-import { openRecordGrid } from "./recordGrid";
+import { RecordGrid } from "./recordGrid";
 import { Toolbar } from "./toolbar";
 import { SettingsMenu } from "./settingsMenu";
 import {
@@ -68,11 +68,12 @@ app.innerHTML = `
   </header>
   <main class="app-main">
     <div id="canvas-panel" class="view-panel">
-      <div id="canvas-wrap"></div>
+      <div id="canvas-wrap" class="fade-visible is-visible"></div>
       <div id="canvas-info-row" class="info-row"></div>
-      <div id="history-view" class="history-view" hidden>
+      <div id="history-view" class="history-view fade-visible" hidden>
         <div id="archive-canvas-wrap" class="archive-canvas-wrap"></div>
       </div>
+      <div id="record-grid-view" class="record-grid-view fade-visible" hidden></div>
       <div id="history-drop-zone" class="history-drop-zone" hidden>
         <span class="history-drop-zone-label">離すと本日へ</span>
       </div>
@@ -128,16 +129,16 @@ const onToolChange = () => {
 };
 // 記録一覧画面（recordGrid.ts）：道具バー（.control-panel）とは別の独立した
 // カード（#record-grid-trigger-slot、.footer-tools-row内の兄弟要素）に置いた
-// トリガーから開く全画面グリッド（ユーザー指示：道具選択ピルとは視覚的にも
-// 完全に別で見えるようにしたい）。セルをタップして選ばれた日付は、日付めくり
-// 画面（setHistoryOffset、下記で定義）へそのまま渡して開く——グリッド側は
-// 索引役に徹し、閲覧・持ち出しの操作は日付めくり画面に一本化する
-// （ユーザー指示）。setHistoryOffsetは関数宣言（巻き上げられる）のため、
-// 実際に呼ばれる時点（ユーザーがセルをタップした後）には定義済みであれば
-// 良く、ここで先に参照しても問題ない。
+// トグルボタンから開閉する（ユーザー指示：道具選択ピルとは視覚的にも完全に
+// 別で見えるようにしたい）。セルをタップして選ばれた日付は、日付めくり画面
+// （setHistoryOffset、下記で定義）へそのまま渡して開く——グリッド側は索引役に
+// 徹し、閲覧・持ち出しの操作は日付めくり画面に一本化する（ユーザー指示）。
+// toggleRecordGridView/setHistoryOffsetはどちらも関数宣言（巻き上げられる）
+// のため、実際に呼ばれる時点（ユーザーがトリガーやセルを操作した後）には
+// 定義済みであれば良く、ここで先に参照しても問題ない。
 const toolbar = new Toolbar(primarySlot, colorSwatchSlot, onToolChange, () => canvasView.undo(), {
   container: recordGridTriggerSlot,
-  onOpen: () => openRecordGrid((dateKey) => setHistoryOffset(daysBetween(dateKey, dateKeyFor(new Date())))),
+  onToggle: () => toggleRecordGridView(),
 });
 
 const getToolState = () => ({
@@ -212,6 +213,23 @@ const historyView = document.querySelector<HTMLDivElement>("#history-view")!;
 const historyDateLabel = document.querySelector<HTMLSpanElement>("#history-date-label")!;
 const archiveCanvasWrap = document.querySelector<HTMLDivElement>("#archive-canvas-wrap")!;
 const historyDropZone = document.querySelector<HTMLDivElement>("#history-drop-zone")!;
+const recordGridViewEl = document.querySelector<HTMLDivElement>("#record-grid-view")!;
+const recordGrid = new RecordGrid(recordGridViewEl);
+
+/** 本体キャンバス・日付めくり・記録一覧の3画面切り替え（setActiveView）を、
+ *  瞬時のhidden切り替えではなくフェードイン・フェードアウトにする
+ *  （ユーザー指示）。同じ場所（#canvas-panel）を共有する3要素を同時に
+ *  クロスフェードさせると、遷移中だけ2つが並んで表示されレイアウトが崩れる
+ *  （.fade-visibleのCSSコメント参照）ため、旧を完全にフェードアウトさせ
+ *  終わってから新をフェードインする逐次の入れ替えにする。 */
+const canvasViewFade = createFadeVisibility(canvasWrap);
+const historyViewFade = createFadeVisibility(historyView);
+const recordGridViewFade = createFadeVisibility(recordGridViewEl);
+function fadeControllerFor(view: PanelView): (show: boolean) => void {
+  if (view === "canvas") return canvasViewFade;
+  if (view === "history") return historyViewFade;
+  return recordGridViewFade;
+}
 
 /** ドロップ帯のスライドイン/アウトのトランジション時間（style.cssの
  *  .history-drop-zoneのtransitionと揃える）。アニメーションが終わってから
@@ -244,6 +262,26 @@ function isPointOverDropZone(clientX: number, clientY: number): boolean {
 
 let historyOffset = 0;
 let archiveCanvas: ArchiveCanvas | null = null;
+
+/** `#canvas-panel`内で同じ場所に入れ替え表示する3つの画面（本体キャンバス／
+ *  日付めくり／記録一覧）。常にどれか1つだけがhidden属性を持たない
+ *  （setActiveView参照、ユーザー指示：3つを同じ場所で切り替える）。 */
+type PanelView = "canvas" | "history" | "recordGrid";
+let activeView: PanelView = "canvas";
+/** 記録一覧を開く直前に表示していた画面（"canvas"か"history"のどちらか）。
+ *  ×ボタン・Escapeで記録一覧を閉じた（＝日付を選ばずに戻る）場合、ここへ
+ *  復元する——記録一覧トリガー（footer側、canvas-panelの外に常設）は
+ *  日付めくり画面の途中でも押せるため、開く前の状態を1つ覚えておく必要がある
+ *  （ユーザー指示：過去の記録グリッドの表示方式変更）。 */
+let viewBeforeRecordGrid: PanelView = "canvas";
+/** setActiveViewが「旧をフェードアウトし終えてから新をフェードインする」
+ *  ために張る、フェードアウト完了待ちのタイマー。連打等でsetActiveViewが
+ *  完了前にもう一度呼ばれた場合、前回分の「フェードインする」予約を
+ *  取り消してから新しい行き先で仕切り直す——さもないと、古い呼び出しの
+ *  コールバックが後から発火して直近の行き先を上書きしてしまう（過去に
+ *  あったpendingViewRestoreの非同期競合と同種の問題、setHistoryOffset付近の
+ *  コメント参照）。 */
+let pendingViewTransition: ReturnType<typeof setTimeout> | null = null;
 
 function historyDateKeyForOffset(offset: number): string {
   return shiftDateKey(dateKeyFor(new Date()), -offset);
@@ -329,28 +367,83 @@ function syncHistoryForwardTabState(): void {
   historyForwardTab.disabled = historyOffset === 0;
 }
 
-/** 表示中の日付（historyOffset）を差し替える唯一の入口。0↔非0をまたぐ
- *  瞬間だけ、本日のキャンバスと過去めくり画面の表示を切り替える副作用を
- *  ここに閉じ込め、呼び出し側（左右タブ）は「次にいくつにしたいか」だけを
- *  渡す——「開く」「閉じる」という特別な動作は無く、1日戻る/進むの結果
- *  として表示が切り替わるだけ（ユーザー指示）。 */
-function setHistoryOffset(newOffset: number): void {
-  const wasOpen = historyOffset !== 0;
-  const willOpen = newOffset !== 0;
-  if (!wasOpen && willOpen) {
-    canvasView.finishTextEditingIfOpen();
-    canvasWrap.hidden = true;
-    historyView.hidden = false;
+/** `#canvas-panel`内の3画面（本体キャンバス／日付めくり／記録一覧）の表示を
+ *  差し替える唯一の入口。同じ画面への切り替えは何もしない（no-op）ため、
+ *  setHistoryOffsetのように「今と違う時だけ」を呼び出し側が判定する必要は
+ *  無い——ここ自身が判定する。本体キャンバスを離れる瞬間だけ
+ *  finishTextEditingIfOpen()を呼び、記録一覧を離れる瞬間だけ
+ *  recordGrid.deactivate()（リサイズ監視・キー捕捉の解除、フォーカス復元）を
+ *  呼ぶ副作用をここに閉じ込める（ユーザー指示：過去の記録グリッドの表示方式
+ *  変更——本体キャンバス⇔日付めくり⇔記録一覧を同じ場所で切り替える）。
+ *
+ *  瞬時のhidden切り替えではなく、旧をフェードアウトさせ終えてから新を
+ *  フェードインする（ユーザー指示：3画面の切り替えをスムーズにしたい）。
+ *  activeView自体はこの関数を呼んだ時点で即座に新しい行き先へ更新する——
+ *  historyOffset同期（setHistoryOffset）やrecordGrid.deactivate()呼び出し等、
+ *  「今どの画面に向かっているか」を参照する他のロジックが、フェード中の
+ *  宙ぶらりんな状態を気にせず動けるようにするため。 */
+function setActiveView(view: PanelView): void {
+  if (activeView === view) return;
+  if (pendingViewTransition !== null) {
+    clearTimeout(pendingViewTransition);
+    pendingViewTransition = null;
   }
+  if (activeView === "canvas") canvasView.finishTextEditingIfOpen();
+  if (activeView === "recordGrid") recordGrid.deactivate();
+  fadeControllerFor(activeView)(false);
+  activeView = view;
+  pendingViewTransition = window.setTimeout(() => {
+    pendingViewTransition = null;
+    fadeControllerFor(view)(true);
+    if (view === "recordGrid") recordGrid.activate(handleRecordGridClose);
+  }, FADE_TRANSITION_MS);
+}
+
+/** 表示中の日付（historyOffset）を差し替える唯一の入口。呼び出し側（左右
+ *  タブ、記録一覧のセルタップ）は「次にいくつにしたいか」だけを渡す——
+ *  「開く」「閉じる」という特別な動作は無く、1日戻る/進むの結果として表示が
+ *  切り替わるだけ（ユーザー指示）。表示の切り替え自体はsetActiveViewに
+ *  委ねるため、記録一覧を表示中にここが呼ばれても（セルタップ）正しく
+ *  記録一覧→日付めくりへ直接遷移する。 */
+function setHistoryOffset(newOffset: number): void {
+  setActiveView(newOffset !== 0 ? "history" : "canvas");
   historyOffset = newOffset;
   updateHistoryDateLabel();
-  if (willOpen) syncHistoryPane();
-  if (wasOpen && !willOpen) {
-    historyView.hidden = true;
-    canvasWrap.hidden = false;
-  }
+  if (newOffset !== 0) syncHistoryPane();
   syncHistoryForwardTabState();
   syncHistoryUrl();
+}
+
+/** 記録一覧トリガー（footerの独立カード、canvas-panelの外に常設のため
+ *  本体キャンバス・日付めくりどちらの最中でも押せる）から呼ばれる、開閉
+ *  トグル。×ボタンを持たない設計（ユーザー指示：iOS/Androidのアプリ切り替え
+ *  画面のように、同じボタンをもう一度押すかマス以外の場所をタップして戻る）
+ *  のため、「今記録一覧を表示中なら閉じる、そうでなければ開く」を1つの入口に
+ *  まとめている。開く前に表示していた画面を覚えておき、日付を選ばずに閉じた
+ *  場合はそこへ戻る（handleRecordGridClose参照）。 */
+function toggleRecordGridView(): void {
+  if (activeView === "recordGrid") {
+    setActiveView(viewBeforeRecordGrid);
+    return;
+  }
+  viewBeforeRecordGrid = activeView;
+  setActiveView("recordGrid");
+}
+
+/** 記録一覧（recordGrid.ts）内でのマス以外のタップ・Escapeキー・セルタップが
+ *  起きた時に一度だけ呼ばれる。dateKeyが非nullならセルタップ——
+ *  setHistoryOffsetへそのまま渡し、日付めくり画面のその日を直接開く（記録
+ *  一覧は索引役に徹する、ユーザー指示）。nullならマス以外のタップ／Escapeでの
+ *  単純な取り消し——記録一覧を開く前の画面（viewBeforeRecordGrid、「直近で
+ *  操作していたキャンバス」——本体キャンバスか、既に日付めくりで見ていた
+ *  過去の日付か）へ戻る。toggleRecordGridViewが footer トリガーの
+ *  再クリックで同じ場所へ戻すのと同じ考え方。 */
+function handleRecordGridClose(dateKey: string | null): void {
+  if (dateKey) {
+    setHistoryOffset(daysBetween(dateKey, dateKeyFor(new Date())));
+  } else {
+    setActiveView(viewBeforeRecordGrid);
+  }
 }
 
 // 左右タブはどちらも同期的に完結し（await・Promiseは無く、副作用の

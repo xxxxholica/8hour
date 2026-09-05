@@ -503,6 +503,20 @@ body {
   justify-content: center;
 }
 
+/* --- 記録一覧画面（main.ts #record-grid-view）。#history-viewと同じ考え方で
+   #canvas-panel内の同じ場所に本体キャンバス・日付めくり画面と入れ替え表示
+   する（ユーザー指示：過去の記録グリッドの表示方式変更——独立した浮遊
+   モーダルから、日付めくり画面と同じ「本体キャンバスの場所と入れ替える」
+   方式へ）。中身（.record-grid-sheet以下）の見た目はrecordGrid.ts参照。 --- */
+.record-grid-view {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 /* --- テキスト入力オーバーレイ。円のクリップ外に出しても構わないよう画面固定で、
    完成後の描画（memo.x/yを中心に上下左右センタリング）と見た目を揃えている。 --- */
 /* 円の中の「紙」（canvas描画部分）は、実際の紙と同じ白さを保つ考え方で
@@ -1594,104 +1608,32 @@ body {
 }
 
 /* --- 記録一覧画面（recordGrid.ts）。書き込みのあった日だけを新しい日順の
-   グリッドで見せる、設定メニュー・日付めくり画面とは独立した全画面
-   オーバーレイ（ユーザー指示：円相の「一覧・検索UIを持たない」原則の明示的な
-   例外）。骨格・フェード（.fade-visible/.is-visible）はusage-guideと同じ
-   仕組みを流用するが、中身は読み物ではなくグリッドそのものなので、シート幅は
-   読み物用の42.5remより大きく、縦方向もできるだけ広く使う。 --- */
-.record-grid {
-  position: fixed;
-  inset: 0;
-  z-index: 41;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-6) var(--space-4);
-  background: color-mix(in oklch, var(--paper-2) 86%, transparent);
-}
-
-/* --- .record-grid-sheetの実寸を、本体キャンバスと同じか、それ以下の大きさに
-   見せるためだけのtransform: scale専用のラッパー（recordGrid.ts
-   syncDesktopScale）。sheet自身は開閉フェードで別のtransform
-   （translateY/scale、下記）を使っているため、大きさ調整をそれと同じ
-   プロパティで奪い合わないよう、器を1枚分けている。 --- */
-.record-grid-scale-wrap {
-  display: flex;
-}
-
-/* 窓の大きさ・形は記録の件数に関わらず常に一定にする（ユーザー指示）——
-   中身のグリッド（.record-grid-cells）自体が日〜土＋週送り2マスの9マス
-   固定になったため、この器もwidth: min(64rem, 100%)のような画面幅
-   いっぱいに広げる指定はやめ、中身にフィットするfit-contentにする
-   （件数が変わっても週送りするだけで、器自体は伸び縮みしない）。 */
-.record-grid-sheet {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  width: fit-content;
-  max-width: 92vw;
-  max-height: calc(100dvh - 48px);
-  padding: var(--space-4) var(--space-5);
-  border-radius: 24px;
-  border: 1px solid var(--ink-12);
-  background: var(--paper-1);
-  box-shadow: var(--shadow-popover);
-  transform: translateY(8px) scale(0.985);
-  transition: transform var(--duration-base) ease;
-  outline: none;
-}
-
-.record-grid.is-visible .record-grid-sheet {
-  transform: none;
-}
-
-.record-grid-head {
-  display: flex;
-  align-items: center;
-  flex: 0 0 auto;
-}
-
-.record-grid-title {
-  font-family: "Klee One", "Noto Sans JP", sans-serif;
-  font-size: var(--text-lg);
-  font-weight: 600;
-  margin: 0;
-}
-
-/* usage-guide-closeと同じ見た目（ユーザー指示：全画面モーダルの骨格を揃える）。 */
-.record-grid-close {
-  appearance: none;
-  border: none;
-  background: none;
-  margin-left: auto;
-  flex: 0 0 auto;
-  width: 2.5rem;
-  height: 2.5rem;
-  border-radius: var(--radius-full);
-  font-size: 1.5rem;
-  line-height: 1;
-  color: var(--ink-60);
-  cursor: pointer;
-  transition: background-color var(--duration-fast) ease;
-}
-
-.record-grid-close:hover {
-  background: var(--paper-2);
-}
+   グリッドで見せる（ユーザー指示：円相の「一覧・検索UIを持たない」原則の
+   明示的な例外）。見た目はiOS/Androidのアプリ切り替え画面（タブオーバー
+   ビュー）を参考にしている（ユーザー指示）：以前あった共有のカード枠
+   （背景・境界線・タイトルバー・×ボタン）を一切持たず、9マスそれぞれの紙
+   （.record-grid-thumb）が個別に影（--canvas-shadow）を落として浮いている
+   だけの見た目にした。閉じる手段も専用の×ボタンではなく、開くのに使った
+   トリガーボタンの再クリック、またはマス以外の場所のタップ（main.ts
+   toggleRecordGridView、recordGrid.tsのpointerdownハンドラ）——背景に
+   隠すものが無いため暗いオーバーレイも無く、表示・非表示自体は
+   .history-viewと同じ瞬時のhidden切り替え（main.ts setActiveView）。 --- */
 
 /* --- グリッド本体。3×3=9マス固定、デスクトップ・モバイル共通のレイアウト
    （ユーザー指示：2×2のモバイル分岐は廃止）——常に「日・月・火・水・木・金・
    土＋前の週へ＋次の週へ」の9項目で埋まる（recordGrid.ts renderWeek）。
-   列の幅は1マスの外形（サムネイル＋.record-grid-cellの左右padding、
-   recordGrid.ts thumbnailSizePx）と揃えること——日付ラベルはcanvas上に
-   直接描く（recordGrid.ts drawDateCaption）ため、セルの外形はサムネイルの
-   正方形＋均一paddingだけで決まり、9マスすべてが同じ正方形になる
-   （ユーザー指示）。 --- */
+   grid-template-columns/gapはCSSで固定値を持たず、recordGrid.ts
+   syncGridSizeが本体キャンバスの実際の見た目のサイズから逆算した値を毎回
+   インラインstyleで設定する——デスクトップ・モバイルの2値をブレークポイントで
+   切り替える方式（以前の実装）だと、モバイルでは本体キャンバスより明らかに
+   小さいまま固定されてしまっていた（ユーザー報告：スマホ版が特に小さい）。
+   日付ラベルはcanvas上に直接描く（recordGrid.ts drawDateCaption）ため、
+   セルの外形はサムネイルの正方形＋均一paddingだけで決まり、9マスすべてが
+   同じ正方形になる（ユーザー指示）。共有のカード枠を持たないため、余白は
+   gapだけで決まる（以前あったカード自体のpadding・margin-topは廃止）。 --- */
 .record-grid-cells {
   display: grid;
-  grid-template-columns: repeat(3, 96px);
-  gap: var(--space-3);
-  margin-top: var(--space-4);
+  outline: none;
 }
 
 /* --- 1マス。グリッドは索引役に徹する（ユーザー指示）ため、タップして
@@ -1738,89 +1680,44 @@ body {
 
 /* --- 週送りセル（recordGrid.ts buildNavCell）。日〜土の7マスと同じグリッドの
    8・9番目のマスとして埋め込む——紙質の実セル・ダミーセルとは見た目で明確に
-   区別するため、黒背景＋白い矢印グリフにする（ユーザー指示）。グリッドの
-   既定（stretch）により、同じ行の紙セルと自動的に同じ正方形サイズになる。 --- */
+   区別するため、黒背景＋白い矢印グリフにする（ユーザー指示）。ボタン自体
+   （.record-grid-cell）はグリッドのstretchで同じ行の紙セルと同じ外形サイズ
+   になるが、黒い正方形の背景は内側の.record-grid-nav-cell-boxだけに付ける
+   ——ボタン全体（外形、padding込み）に塗ると、サムネイル（紙の見える範囲、
+   外形よりpadding分小さい）より一回り大きく見えてしまい、9マスの見た目の
+   大きさが揃わない（ユーザー指摘：実測でズレを確認）。box自体の一辺は
+   recordGrid.ts syncNavCellSizeがthis.thumbnailSizePxと同じ値をJSで設定する
+   ——サムネイルのcanvas要素も同じ値から一辺を決めているため、常に一致する。 --- */
 .record-grid-nav-cell {
-  background: var(--ink-solid);
-  color: var(--paper-1);
-  align-items: center;
-  justify-content: center;
+  color: var(--ink-70);
   font-size: 1.5rem;
   line-height: 1;
 }
 
-.record-grid-nav-cell:hover {
+.record-grid-nav-cell-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ink-solid);
+  color: var(--paper-1);
+  border-radius: 10%;
+  filter: var(--canvas-shadow);
+}
+
+.record-grid-nav-cell:hover .record-grid-nav-cell-box {
   background: var(--ink-85);
 }
 
-.record-grid-nav-cell:disabled {
+/* ネイティブのdisabled属性は使わない（recordGrid.ts setNavCellDisabled参照）
+   ——disabled + pointer-events:noneにすると、グレーアウト中のタップが
+   ヒットテストをすり抜けて背景（#record-grid-view）まで届いてしまい、
+   「マス以外をタップしたら閉じる」判定が誤って反応し、押しただけで記録一覧
+   ごと閉じてしまう不具合があった（ユーザー報告）。見た目のグレーアウトだけ
+   [aria-disabled]で行い、当たり判定自体はこのボタンで受け止め続ける
+   （実際に何もしないのはクリックハンドラ側で判定する）。 */
+.record-grid-nav-cell[aria-disabled="true"] {
   opacity: 0.35;
   cursor: default;
-  pointer-events: none;
-}
-
-/* --- デスクトップだけ、窓全体（タイトル行・グリッド）をひとまとまりの
-   正方形にし、本体キャンバスと同じか、それ以下の大きさになるよう拡大する
-   （ユーザー指示：「本体キャンバスの縮小版」に見せたい、かつ本体より
-   大きくは見せたくない）。実際の大きさ合わせはrecordGrid.ts
-   syncDesktopScaleがtransform: scaleで行う（このsheet自体はここでは
-   固定の実寸のまま組み立てる）。モバイルは従来通りの縦長のカード
-   （幅fit-content・行を縦に積む構成）のまま変える必要が無いため、
-   ここだけ上書きする。このブロックは対応する各セレクタの素のルール
-   （上記）より必ず後ろに置くこと——メディアクエリは詳細度を上げないため、
-   同じプロパティを指定した素のルールの方が後ろにあるとカスケードで
-   負けてしまう（実装時に発生した不具合）。
-   タイトル（週の日付範囲、recordGrid.ts renderWeek）は、グリッドの高さに
-   上乗せする通常の行としてではなく、外枠の余白（padding）の中に
-   position:absoluteで浮かせて置く——日付ラベルをセルのcanvas上に直接描く
-   形にしたことで（recordGrid.ts drawDateCaption）9マスすべてが完全な
-   正方形になり、グリッド自体も3×3で幅=高さの正方形になったため、外枠の
-   余白は上下左右均一のままでよい（以前は縦積みの日付ラベル分だけ左右の
-   余白を広げて帳尻を合わせていたが、その必要が無くなった）。角丸は本体
-   キャンバス（CANVAS_FRAME_SHAPE）と揃えつつ、実際に並べた見た目で
-   微調整した値（下記）にしている。 --- */
-@media (min-width: 481px) {
-  /* セル一辺206px（サムネイル190px＋.record-grid-cellの左右padding16px）×
-     3列＋隙間2×16pxでグリッド650px四方（正方形）。上下左右均一のpadding
-     40pxを足して窓全体を730px四方にする。角丸は当初CANVAS_FRAME_SHAPEの
-     比率通り15%にしていたが、実際に本体キャンバスと並べると風船のように
-     丸すぎたため（ユーザー指摘）、本体キャンバス側の角丸も含めて一段階
-     シャープにし直した上で、計算式ではなく見た目で7%まで調整している。 */
-  .record-grid-sheet {
-    padding: 40px;
-    border-radius: 7%;
-    justify-content: center;
-  }
-
-  /* heightを外枠のpadding（40px）と同じ値に固定することで、タイトル行の
-     箱自体をこの帯にきっちり収める——中身（ボタンの高さ等）に応じて箱の
-     高さが変わる形にすると、位置決めがtop:0のままでは帯からはみ出してグリッド
-     と重なってしまう（実装時に発生した不具合）。左右のpaddingも
-     .record-grid-sheetと同じ40pxにして、グリッドの左右端と揃える。 */
-  .record-grid-head {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 40px;
-    padding: 0 40px;
-  }
-
-  .record-grid-title {
-    font-size: var(--text-md);
-  }
-
-  .record-grid-close {
-    width: 2rem;
-    height: 2rem;
-    font-size: 1.25rem;
-  }
-
-  .record-grid-cells {
-    grid-template-columns: repeat(3, 206px);
-    gap: 1rem;
-    margin-top: 0;
-  }
 }
 
 /* --- 練習用サンドボックス（tutorialSandbox.ts）。本物の#canvas-wrap相当の
