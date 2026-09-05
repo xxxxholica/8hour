@@ -211,6 +211,10 @@ export class Toolbar {
   private recordGridStepForwardBtn: HTMLButtonElement | null = null;
 
   private toolButtons = new Map<ToolbarTool, HTMLButtonElement>();
+  /** 「戻る」ボタン本体（buildTools参照）。toolButtonsには含まれないため
+   *  （道具選択とは違い押下状態を持たない）、setToolsDisabledで一緒に
+   *  無効化する対象として別フィールドに保持する。 */
+  private undoBtn!: HTMLButtonElement;
 
   /** 消しゴムの大きさ（小/中/大）を選ぶボタンの行（buildEraserSizeSteps参照）。
    *  追従カード（colorSwatchContainer）内で.panel-swatches-row（色スワッチの
@@ -356,6 +360,7 @@ export class Toolbar {
     undoBtn.innerHTML = ICONS.undo;
     undoBtn.addEventListener("click", () => this.onUndo?.());
     this.attachToolTooltip(undoBtn, "戻る");
+    this.undoBtn = undoBtn;
     pill.appendChild(undoBtn);
 
     tools.appendChild(pill);
@@ -392,6 +397,7 @@ export class Toolbar {
     stepBack.setAttribute("aria-label", "前の日へ");
     stepBack.textContent = "◀";
     stepBack.addEventListener("click", () => options.onStepBack());
+    this.attachToolTooltip(stepBack, "前の日へ");
 
     const btn = document.createElement("button");
     btn.type = "button";
@@ -407,8 +413,18 @@ export class Toolbar {
     stepForward.type = "button";
     stepForward.className = "record-grid-trigger-step record-grid-trigger-step--forward";
     stepForward.setAttribute("aria-label", "次の日へ");
-    stepForward.textContent = "▶";
     stepForward.addEventListener("click", () => options.onStepForward());
+    // ▶の文字自体は、幅がアニメーションで0に潰れる際にはみ出して見えない
+    // よう内側のspan（record-grid-trigger-step-glyph、overflow:hidden）に
+    // 収める——ホバー案内(.tool-tooltip)はボタン本体（stepForward）に直接
+    // 差し込む（attachToolTooltip）ため、ボタン自身にoverflow:hiddenを
+    // 付けてしまうとツールチップまで一緒に切り取られてしまう（style.css
+    // .record-grid-trigger-step--forward参照）。
+    const stepForwardGlyph = document.createElement("span");
+    stepForwardGlyph.className = "record-grid-trigger-step-glyph";
+    stepForwardGlyph.textContent = "▶";
+    stepForward.appendChild(stepForwardGlyph);
+    this.attachToolTooltip(stepForward, "次の日へ");
 
     row.appendChild(stepBack);
     row.appendChild(btn);
@@ -714,5 +730,42 @@ export class Toolbar {
     this.syncEraserSizeSteps();
     this.syncSwatch();
     this.syncFollowerCard();
+  }
+
+  /** 過去めくり画面（main.ts activeView==="history"）を表示している間、道具
+   *  選択ボタン（ペン・マーカー・消しゴム・テキスト・選択）と「戻る」ボタンを
+   *  操作不可にする（Issue #2）。過去めくり画面自体は仕様通り読み取り専用だが、
+   *  道具バーは本体キャンバス表示時と同じ見た目・操作可能な状態のまま残って
+   *  いたため、道具を選んで描こうとしても何も起きず「書き込みが機能していない」
+   *  ように見えてしまっていた（ユーザー報告）。「戻る」ボタンも同様に含める
+   *  ——onUndoは表示中の画面に関わらず常に今日のキャンバスを書き換えるため、
+   *  含めないと過去めくり中に押した際、見えていない今日のキャンバスの直前の
+   *  操作が黙って取り消されてしまう（ユーザー指摘）。ネイティブのdisabled
+   *  属性を使うことで、既存の.toolbar-btn:disabled（グレースケール化、
+   *  issue #79）をそのまま流用できる。
+   *
+   *  無効化する瞬間、道具自体も強制的に「選択」（move）へ切り替える
+   *  （ユーザー指摘）。過去めくり画面で実際にできる唯一の操作はメモを
+   *  ドラッグして現在のキャンバスへ移すこと（archiveCanvas.ts）で、道具の
+   *  概念としては「選択」に相当する。ボタンを無効化するだけで道具の状態
+   *  （this.tool）自体はそのままにしていたため、ペン・マーカー・テキストを
+   *  選んだまま過去めくりへ入ると、追従カード（色スワッチ、syncFollowerCard）
+   *  が過去めくり画面の上に乗ったまま表示され続ける不具合があった。 */
+  setToolsDisabled(disabled: boolean): void {
+    if (disabled) this.setTool("move");
+    for (const btn of this.toolButtons.values()) {
+      btn.disabled = disabled;
+    }
+    this.undoBtn.disabled = disabled;
+  }
+
+  /** 道具バーで何も選ばず（または他の道具を選んだまま）キーボードから直接
+   *  文字を打ち始めた時（canvasView.ts onGlobalKeyDown/startTextInputAtCenter
+   *  経由、main.tsのCircularCanvasOptions.onAutoTextToolStart参照）に呼ぶ。
+   *  実際にはテキストメモの作成が始まっているのに道具バー上は元の道具の
+   *  ままで、キーボード入力を始めても何も選ばれていないように見えていた
+   *  （ユーザー指摘）ため、道具の表示を実態に合わせてテキストへ切り替える。 */
+  activateTextTool(): void {
+    this.setTool("text");
   }
 }

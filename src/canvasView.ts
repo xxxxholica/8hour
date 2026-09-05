@@ -183,6 +183,13 @@ export interface CircularCanvasOptions {
   minRenderedTextFontPx?: number;
   /** メモ作成時刻の供給元。省略時は実時間。練習画面は加速した仮想時計を渡す。 */
   nowProvider?: () => number;
+  /** 道具バーで何も選ばずキーボードから直接文字を打ち始めた時
+   *  （onGlobalKeyDown/startTextInputAtCenter、印字可能キー1文字での新規
+   *  テキストメモ作成）に呼ぶ。実際にはテキストメモの作成が始まっているのに
+   *  道具バー上は元の道具（多くは「道具なし」）のまま変わらず見えていた
+   *  （ユーザー指摘）ため、呼び出し側（main.ts）がここで道具バーの表示を
+   *  テキストへ切り替える。 */
+  onAutoTextToolStart?: () => void;
 }
 
 export class CircularCanvas {
@@ -298,6 +305,7 @@ export class CircularCanvas {
   private fixedBottomTextEditorOnCoarsePointer: boolean;
   private minRenderedTextFontPx: number | undefined;
   private nowProvider: () => number;
+  private onAutoTextToolStart: (() => void) | undefined;
 
   constructor(
     container: HTMLElement,
@@ -314,6 +322,7 @@ export class CircularCanvas {
     this.fixedBottomTextEditorOnCoarsePointer = options.fixedBottomTextEditorOnCoarsePointer ?? true;
     this.minRenderedTextFontPx = options.minRenderedTextFontPx;
     this.nowProvider = options.nowProvider ?? Date.now;
+    this.onAutoTextToolStart = options.onAutoTextToolStart;
     this.canvas = document.createElement("canvas");
     this.canvas.className = "circle-canvas";
     this.container.appendChild(this.canvas);
@@ -1335,6 +1344,7 @@ export class CircularCanvas {
     if (ev.key.length !== 1) return; // 矢印・Enter・Tab等の非文字キーは無視
     if (isEditableFocus) return;
     ev.preventDefault();
+    this.onAutoTextToolStart?.();
     this.openTextEditor({ x: 0, y: 0 }, null, ev.key);
   };
 
@@ -1343,6 +1353,7 @@ export class CircularCanvas {
     if (!this.interactive || this.textEditor || this.state.mode !== "idle" || initialText.length !== 1) {
       return;
     }
+    this.onAutoTextToolStart?.();
     this.openTextEditor({ x: 0, y: 0 }, null, initialText);
   }
 

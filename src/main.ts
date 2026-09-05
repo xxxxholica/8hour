@@ -150,6 +150,10 @@ const canvasView = new CircularCanvas(canvasWrap, store, getToolState, {
   // （canvasView.ts openTextEditor参照）で「隠れる」こと自体は防げているため、
   // タップ位置追従に統一する。
   fixedBottomTextEditorOnCoarsePointer: false,
+  // 道具バーで何も選ばずキーボードから直接文字を打ち始めた時、道具バーの
+  // 表示をテキストへ切り替える（ユーザー指摘：入力を始めても何も選ばれて
+  // いないように見える）。
+  onAutoTextToolStart: () => toolbar.activateTextTool(),
 });
 
 // 設定メニュー（テーマ・使い方・エクスポート）。以前は各タブの操作列
@@ -388,6 +392,11 @@ function setActiveView(view: PanelView): void {
   if (activeView === "recordGrid") recordGrid.deactivate();
   fadeControllerFor(activeView)(false);
   activeView = view;
+  // 過去めくり画面は読み取り専用のため、表示中は道具選択ボタンを操作不可に
+  // する（Issue #2）——道具バー自体は本体キャンバスと共有の固定オーバーレイ
+  // で、フェード中も消えずに乗ったままのため、フェード待ちを挟まずここで
+  // 即座に切り替える。
+  toolbar.setToolsDisabled(view === "history");
   pendingViewTransition = window.setTimeout(() => {
     pendingViewTransition = null;
     fadeControllerFor(view)(true);
@@ -482,7 +491,13 @@ const initialHistoryOffset = readInitialHistoryStateFromUrl();
 if (initialHistoryOffset !== null) {
   setHistoryOffset(initialHistoryOffset);
 } else {
+  // dateが今日以降等でreadInitialHistoryStateFromUrlがnullを返した場合、
+  // 通常表示（本体キャンバス）から始めるだけでは不十分——URL自体
+  // （?view=past&date=...）は書き換わらずアドレスバーに残り続けてしまう
+  // （Issue #2）。syncHistoryUrl()はhistoryOffset===0の間はview/dateどちらの
+  // パラメータも削除するため、ここで呼んで無効なURLを排除する。
   updateHistoryDateLabel();
+  syncHistoryUrl();
 }
 // setHistoryOffset経由（上のtrue分岐）でもsetActiveView内から既に呼ばれて
 // いるが、else分岐（今日のまま起動）はsetActiveViewを一切通らないため、

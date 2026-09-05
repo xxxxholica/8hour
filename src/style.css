@@ -784,6 +784,9 @@ body {
   line-height: 1;
   cursor: pointer;
   transition: color var(--duration-fast) ease;
+  /* ホバー案内(.tool-tooltip、attachToolTooltip)をこのボタン基準で重ねて
+     表示するため（.toolbar-btnの同じ指定と同じ理由）。 */
+  position: relative;
 }
 
 .record-grid-trigger-step:hover {
@@ -795,13 +798,15 @@ body {
    が唐突すぎる）。hidden属性ではなくdata-visible（toolbar.ts
    refreshRecordGridTrigger）でこのクラス内だけの見た目を出し分ける——
    hidden（display:noneの瞬間切り替え）だとtransitionが効かないため。
-   常にDOM上には存在させたまま、消えている間はwidth:0＋overflow:hiddenで
-   場所を取らせず、pointer-events:noneとtabindex（toolbar.ts）でクリック・
-   キーボード操作からも外す。 */
+   常にDOM上には存在させたまま、消えている間はwidth:0で場所を取らせず、
+   pointer-events:noneとtabindex（toolbar.ts）でクリック・キーボード操作
+   からも外す。overflow:hiddenはボタン自身ではなく内側の.record-grid-
+   trigger-step-glyphに付ける——ボタン自身にはホバー案内(.tool-tooltip、
+   attachToolTooltip)がbottom:100%で乗っており、ボタン自身をoverflow:hidden
+   にすると幅が0へ潰れていく間ツールチップごと切り取られてしまうため。 */
 .record-grid-trigger-step--forward {
   width: 1.375rem;
   opacity: 1;
-  overflow: hidden;
   transition: width var(--duration-base) ease, opacity var(--duration-base) ease;
 }
 
@@ -809,6 +814,19 @@ body {
   width: 0;
   opacity: 0;
   pointer-events: none;
+}
+
+/* ▶の文字自体（幅が0へ潰れる間、ボタンの外へはみ出して見えないよう
+   ここでだけoverflow:hiddenを掛ける——上記.record-grid-trigger-step--forward
+   コメント参照）。ボタン本体と同じ大きさぴったりに重ね、中央寄せだけ
+   ここで担う。 */
+.record-grid-trigger-step-glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
 }
 
 /* --- 道具バー：道具アイコンを1列（.toolbar-pill）に、すべて同じ大きさ
