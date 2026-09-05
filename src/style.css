@@ -424,60 +424,24 @@ body {
   cursor: grabbing;
 }
 
-/* --- 過去めくりの「前の日」「次の日」＋日付ラベルの帯（main.ts
+/* --- 過去めくり中の日付を伝えるだけの表示専用ラベル帯（main.ts
    #history-strip）。ヘッダー右上（.app-header-right、ハンバーガーメニューと
    対称の位置、ユーザー指示）に常設する——キャンバスやツールバーには一切
-   重ならず、矢印のための余白を確保する必要も無いため、キャンバス・下部
-   パネルとも画面幅を最大限使える。画面幅による配置の出し分けは持たない。
-   比較対象は単一アイコンのハンバーガーメニューではなく、下部の色スワッチ
-   （枠・背景を持たず円が並んでいるだけ）の方が適切（ユーザー指摘）——
-   「◀」「今日」「▶」の3要素も、それぞれが独立してヘッダーに直接置かれて
-   いるだけに見えるよう、gapは.panel-swatches-rowと同じ値に揃える。 --- */
+   重ならない。
+   以前はここに◀▶（1日戻る/進む）ボタンも同居していたが、「過去に戻る入口が
+   ヘッダーとフッターの記録一覧トリガーの2箇所に分かれている」「今日への
+   直接復帰の手段が乏しい」という指摘（Issue #3）を受け、切り替え操作を
+   道具バー脇の記録一覧トリガー（.record-grid-trigger-card、下記）へ統合
+   した。ここは表示専用のラベル1つだけになったため、帯としての外枠は
+   持たせず、素のテキストを直接置くだけにしている。 --- */
 .history-strip {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
 }
 
-/* ボタン自体も、丸い当たり判定やホバー時の背景円といった「ボタンらしい
-   チェーム」を持たせると、矢印⇔ラベル⇔矢印という左右対称の並びと相まって
-   1つのステッパー風コントロールに見えてしまう（ユーザー指摘）。当たり判定を
-   色スワッチ（1.625rem）に近い大きさまで絞り、背景・角丸を一切持たせず、
-   ホバー時の反応も背景ではなく文字色の変化だけにする——グリフそのものが
-   独立した小さなアイコンとして置かれているだけに見えるようにする。 */
-.history-strip-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 1.625rem;
-  height: 1.625rem;
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--ink-70);
-  font-size: var(--text-sm);
-  line-height: 1;
-  cursor: pointer;
-  transition: color var(--duration-fast) ease, opacity var(--duration-fast) ease;
-}
-
-.history-strip-btn:hover {
-  color: var(--ink-solid);
-}
-
-/* 「進む」は今日を見ている間（historyOffset===0）はこれ以上進めないため
-   disabled——グレーアウトして操作不可であることを見た目でも伝える。 */
-.history-strip-btn:disabled {
-  opacity: 0.35;
-  cursor: default;
-  pointer-events: none;
-}
-
-/* 日付ラベルも、周りに箱を持たない素のテキストとして置く。アイコンのみの
-   ハンバーガーメニューと並んだ時に主張しすぎないよう、小さめのフォント・
-   控えめな色にする（ユーザー指摘）。固定幅は持たせない——それ自体が
-   見えない「枠」として働き、3要素をまとめて見せる一因になるため。 */
+/* 周りに箱を持たない素のテキストとして置く。アイコンのみのハンバーガー
+   メニューと並んだ時に主張しすぎないよう、小さめのフォント・控えめな色に
+   する（ユーザー指摘）。 */
 .history-strip-label {
   font-size: var(--text-xs);
   font-weight: 500;
@@ -753,24 +717,22 @@ body {
   height: 1rem;
 }
 
-/* --- 記録一覧画面（recordGrid.ts）を開く独立トリガーの器
+/* --- 記録一覧画面（recordGrid.ts）への唯一の入口の器
    （main.ts #record-grid-trigger-slot、toolbar.ts buildRecordGridTrigger）。
    .control-panelとは別の、.panel-swatchesと同じ角丸・枠線・背景・影を持つ
    独立したカードにする（ユーザー指示：道具選択ピルとは完全に別で見える
-   ようにしたい）——中身はボタン1つだけなので、カード自体は中身にフィット
-   させる。 --- */
+   ようにしたい）。
+   中央のバッジ＋両脇の◀▶（.record-grid-trigger-row）を常時表示する
+   固定構成（Issue #3：過去に戻る入口をヘッダーからここへ一本化し、今日への
+   直接復帰も可能にする——前日へ戻るボタンは今日を見ている間も出しておく、
+   というユーザー指示）——以前はボタン1個だけの状態もあり幅を高さに合わせて
+   正方形へ強制するJSが必要だったが、常に3点セットになったことで幅は中身
+   （fit-content相当、flex:noneのまま）に任せるだけでよくなった。 --- */
 .record-grid-trigger-card {
   display: flex;
   align-items: center;
   justify-content: center;
   flex: none;
-  /* footer-tools-rowのalign-items:stretchで道具バーと同じ高さになるが、
-     幅は中身（ボタン）にフィットするだけだと幅<高さになってしまう
-     （ユーザー指摘：縦横比が1:1になっていない）。aspect-ratioだけでは
-     flex-basis:autoの幅（コンテンツ由来のまま）が優先されてしまい効かな
-     かったため（実装時に確認済み）、widthはmain.tsのResizeObserver
-     （syncRecordGridTriggerSquare）が実測した高さをそのままpxで書き込む形で
-     確実に正方形にしている——ここでは形（角丸等）だけを持たせる。 */
   padding: 0.4375rem;
   border-radius: var(--radius-lg);
   border: 1px solid var(--ink-12);
@@ -778,13 +740,75 @@ body {
   box-shadow: var(--shadow-card);
 }
 
+.record-grid-trigger-row {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+}
+
 .record-grid-trigger-btn {
   flex: none;
+}
+
+/* サムネイル（canvas）だけを差し替えるための入れ物（toolbar.ts
+   refreshRecordGridTrigger参照）。display:contentsで自分自身は箱を持たず、
+   .record-grid-trigger-btnのflex中央寄せに直接canvasが乗っているのと
+   同じ見た目にする。 */
+.record-grid-trigger-thumb-slot {
+  display: contents;
 }
 
 .record-grid-trigger-thumb {
   display: block;
   border-radius: 6px;
+}
+
+/* 中央バッジの両脇の◀▶（Issue #3）。◀（前日へ）は今日を見ている間も含め
+   常時表示、▶（次の日へ）は今日を見ている間（toolbar.ts
+   refreshRecordGridTrigger、data-visible属性）だけ現れなくなる——ユーザー
+   指示：進むボタンは今日を見ている時は無くていい。.history-strip-btn
+   （旧ヘッダー版、撤去済み）と同じ「独立した小さなアイコンとして置かれて
+   いるだけ」の見た目——丸い当たり判定やホバー時の背景円は持たせない。 */
+.record-grid-trigger-step {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 1.375rem;
+  height: 2.375rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--ink-70);
+  font-size: var(--text-sm);
+  line-height: 1;
+  cursor: pointer;
+  transition: color var(--duration-fast) ease;
+}
+
+.record-grid-trigger-step:hover {
+  color: var(--ink-solid);
+}
+
+/* ▶（.record-grid-trigger-step--forward）だけ、現れる/消えるをパッと切り
+   替えず幅・不透明度をなめらかにアニメーションさせる（ユーザー指示：出入り
+   が唐突すぎる）。hidden属性ではなくdata-visible（toolbar.ts
+   refreshRecordGridTrigger）でこのクラス内だけの見た目を出し分ける——
+   hidden（display:noneの瞬間切り替え）だとtransitionが効かないため。
+   常にDOM上には存在させたまま、消えている間はwidth:0＋overflow:hiddenで
+   場所を取らせず、pointer-events:noneとtabindex（toolbar.ts）でクリック・
+   キーボード操作からも外す。 */
+.record-grid-trigger-step--forward {
+  width: 1.375rem;
+  opacity: 1;
+  overflow: hidden;
+  transition: width var(--duration-base) ease, opacity var(--duration-base) ease;
+}
+
+.record-grid-trigger-step--forward[data-visible="false"] {
+  width: 0;
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* --- 道具バー：道具アイコンを1列（.toolbar-pill）に、すべて同じ大きさ

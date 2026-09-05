@@ -237,9 +237,12 @@ export class RecordGrid {
     this.grid.innerHTML = "";
     for (let weekday = 0; weekday < 7; weekday++) {
       const dateKey = shiftDateKey(displayedSunday, weekday);
-      const cell = this.archivedDateSet.has(dateKey)
-        ? this.buildCell(dateKey)
-        : buildWeekdayDummyCell(weekday, this.thumbnailSizePx);
+      const cell =
+        dateKey === todayKey
+          ? this.buildTodayCell(dateKey)
+          : this.archivedDateSet.has(dateKey)
+            ? this.buildCell(dateKey)
+            : buildWeekdayDummyCell(weekday, this.thumbnailSizePx);
       this.grid.appendChild(cell);
     }
     this.grid.appendChild(this.prevWeekBtn);
@@ -292,6 +295,31 @@ export class RecordGrid {
     const size = this.thumbnailSizePx;
     renderMemoThumbnail(canvas, loadArchive(dateKey), size, true);
     drawDateCaption(canvas, size, formatCellDateLabel(dateKey));
+
+    return btn;
+  }
+
+  /** 今日に該当するマス専用のセル（Issue #3：過去に戻る入口をフッターの
+   *  トリガー1箇所へ統合し、今日への直接復帰も可能にする）。今日はまだ
+   *  archiveされていない（book-keeping上は「実データの無い日」と同じ）ため、
+   *  以前はbuildWeekdayDummyCell扱いでタップ不可だった——どれだけ過去へ
+   *  潜っていても、記録一覧を開けば必ず今週（weekIndex===0、refresh参照）
+   *  から始まり今日のマスが見えているにも関わらず、そこから直接戻る手段が
+   *  無かった。実データの有無を問わずタップ可能にし、押すと（過去めくり中
+   *  かどうかに関わらず）そのまま今日のキャンバスへ戻る。見た目は他の
+   *  ダミーセルと同じ罫線入りの紙だが、リング（アクセントカラー）と
+   *  「今日」ラベルで区別する（renderTodayThumbnail参照）。 */
+  private buildTodayCell(dateKey: string): HTMLElement {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "record-grid-cell";
+    btn.setAttribute("aria-label", "今日のキャンバスへ戻る");
+    btn.addEventListener("click", () => this.requestClose(dateKey));
+
+    const canvas = document.createElement("canvas");
+    canvas.className = "record-grid-thumb";
+    btn.appendChild(canvas);
+    renderTodayThumbnail(canvas, this.thumbnailSizePx);
 
     return btn;
   }
@@ -385,7 +413,7 @@ function themeColor(varName: string, fallback: string): string {
  * 同じ正方形サイズにしたい）——renderMemoThumbnail呼び出し後、同じcanvas
  * （dpr分のsetTransformは維持されたまま）に追い描きする。
  */
-function drawDateCaption(canvas: HTMLCanvasElement, sizePx: number, text: string): void {
+function drawDateCaption(canvas: HTMLCanvasElement, sizePx: number, text: string, color?: string): void {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
   const half = sizePx / 2;
@@ -396,9 +424,47 @@ function drawDateCaption(canvas: HTMLCanvasElement, sizePx: number, text: string
   ctx.font = `500 ${fontPx}px "Noto Sans JP", sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
-  ctx.fillStyle = themeColor("--ink-55", "oklch(22% 0.012 55 / 0.55)");
+  ctx.fillStyle = color ?? themeColor("--ink-55", "oklch(22% 0.012 55 / 0.55)");
   ctx.fillText(text, 0, half - fontPx * 0.7);
   ctx.restore();
+}
+
+/**
+ * 今日マス（buildTodayCell）専用のサムネイル。他のセルと同じ罫線入りの紙
+ * （drawRuledPaper）を敷いた上に、紙の輪郭そのもの（CANVAS_FRAME_SHAPE）に
+ * 沿ったリングと「今日」ラベルをアクセントカラーで重ねる——円形/角丸正方形
+ * どちらの外観設定でも輪郭からズレないよう、CSSの外枠ではなくcanvas上で
+ * 同じパスをそのままストロークしている。今日はまだarchiveされていない
+ * ため実データは一切描かない（実データが無い他のダミーセルとの唯一の違いは
+ * このリング＋ラベルで、タップ可能な点はbuildTodayCell側の見た目）。
+ */
+function renderTodayThumbnail(canvas: HTMLCanvasElement, size: number): void {
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  canvas.width = size * dpr;
+  canvas.height = size * dpr;
+  canvas.style.width = `${size}px`;
+  canvas.style.height = `${size}px`;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  const half = size / 2;
+  const accent = themeColor("--accent-blue", "oklch(48% 0.16 258)");
+
+  ctx.save();
+  ctx.translate(half, half);
+  ctx.clip(CANVAS_FRAME_SHAPE.buildPath(half));
+  drawRuledPaper(ctx, half);
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(half, half);
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = accent;
+  ctx.stroke(CANVAS_FRAME_SHAPE.buildPath(half - 1));
+  ctx.restore();
+
+  drawDateCaption(canvas, size, "今日", accent);
 }
 
 /**

@@ -1,10 +1,7 @@
-import { dateKeyFor, shiftDateKey } from "./dailyReset";
 import { createFadeVisibility } from "./fadeVisibility";
 import { notifyClose, notifyOpen } from "./exclusivePopover";
 import { ICONS } from "./icons";
-import { renderMemoThumbnail } from "./memoRenderer";
 import { dayOfWeek, drawWeekdayBadge } from "./recordGrid";
-import { loadArchive } from "./storage";
 import { DEFAULT_FONT_SIZE_STEP, FONT_SIZE_STEPS } from "./textLayout";
 import { PEN_LINE_WIDTH } from "./toolStyle";
 import type { DrawTool } from "./types";
@@ -13,25 +10,40 @@ import type { DrawTool } from "./types";
  *  コールバック。containerは.toolbar（道具選択のピル）とは別の、呼び出し側
  *  （main.ts）が用意する独立したカード要素——ここに差し込むことで、道具選択
  *  ボタン群とは背景・角丸を共有しない見た目にする（ユーザー指示：完全に別で
- *  見えるようにしたい）。押すたびに開閉が入れ替わるトグルボタン（ユーザー
- *  指示：×ボタンを持たず、同じボタンをもう一度押すと閉じるiOS/Androidの
- *  アプリ切り替え画面のような操作感にしたい）——「今開いているかどうか」の
- *  判定・状態管理はonToggleの呼び出し側（main.ts）が持つ。 */
+ *  見えるようにしたい）。
+ *
+ *  過去に戻る入口が過去めくり帯（ヘッダー）とこのトリガー（フッター）の
+ *  2箇所に分かれており、かつ深く過去へ潜った後に今日へ戻る手段が乏しい、
+ *  という指摘（Issue #3）を受け、このトリガー1箇所へ操作を統合した：
+ *  - onToggleGrid：中央のバッジを押した時（記録一覧グリッドの開閉、以前の
+ *    onToggleと同じ役割）
+ *  - onStepBack/onStepForward：両脇の◀▶を押した時（1日戻る/進む）。◀は
+ *    今日を見ている間も含め常時表示・常時有効（ユーザー指示：前日に戻る
+ *    ボタンは今日を見ている時も出しておきたい）——「今日から1日戻る」も
+ *    「開く」ではなく1日戻った結果として過去めくりになるだけ、という既存の
+ *    考え方をそのまま踏襲している。「今開いているかどうか」「今どの日を
+ *    見ているか」の判定・状態管理はすべて呼び出し側（main.ts）が持つ。 */
 export interface RecordGridTriggerOptions {
   container: HTMLElement;
-  onToggle: () => void;
+  onToggleGrid: () => void;
+  onStepBack: () => void;
+  onStepForward: () => void;
 }
 
-/** トリガー内のサムネイル（過去の記録が1件以上ある場合の直近日プレビュー）の
- *  一辺（CSSピクセル）。ボタン本体（.toolbar-btn、2.375rem=38px）の内側に
- *  収まる大きさにする。 */
+/** トリガー中央のバッジ（.record-grid-trigger-thumb）の一辺（CSSピクセル）。
+ *  ボタン本体（.toolbar-btn、2.375rem=38px）の内側に収まる大きさにする。
+ *  以前はここに実際のメモ内容を縮小レンダリングしたサムネイルを出そうと
+ *  していたが、26px四方では手書きの線が潰れて判読できず「プレビューが
+ *  うまく見えない」という指摘があったため撤回し、記録一覧のダミーセルと
+ *  同じ円形の曜日バッジ（drawWeekdayBadge）だけを常に描く方式に統一した
+ *  （ユーザー指示）——このサイズでも崩れずに読めるのはこちらだけ。 */
 const RECORD_GRID_TRIGGER_THUMB_SIZE_PX = 26;
 
-/** 昨日のキャンバスに何も書き込まれていない時の記録一覧トリガーの中身。
- *  紙の背景は描かず（26px四方と小さく、罫線入り紙を敷くと潰れて見えるため）、
- *  記録一覧のダミーセルと同じ円形の曜日バッジ（recordGrid.ts
- *  drawWeekdayBadge）だけをボタンいっぱいに描く。 */
-function renderEmptyYesterdayBadge(canvas: HTMLCanvasElement, dateKey: string): void {
+/** プレビュー対象の日（今日を見ている間は昨日、過去めくり中は今見ている
+ *  その日——main.tsのcurrentTriggerDateKey参照）の曜日を示す円形バッジを
+ *  描く。実際にその日へ書き込みがあるかどうかは問わない（上記の理由により
+ *  内容プレビューは行わない）。 */
+function renderTriggerBadge(canvas: HTMLCanvasElement, dateKey: string): void {
   const dpr = Math.max(1, window.devicePixelRatio || 1);
   const size = RECORD_GRID_TRIGGER_THUMB_SIZE_PX;
   canvas.width = size * dpr;
@@ -182,6 +194,21 @@ export class Toolbar {
    *  かった（呼び出し側が使わない）場合はnullのまま——refreshRecordGridTrigger
    *  は何もしない。 */
   private recordGridTriggerBtn: HTMLButtonElement | null = null;
+  /** サムネイル（canvas）だけを差し替えるための入れ物。以前はbtn自身の
+   *  innerHTMLを直接差し替えていたが、それだとattachToolTooltipがbtnへ
+   *  追加したツールチップ要素まで毎回消えてしまい、記録一覧トリガーの
+   *  ホバー案内が実際には二度と表示されないというバグがあった（発見・修正、
+   *  Issue #3の実装中に判明）。ツールチップとは別の子要素にサムネイルを
+   *  収め、refreshRecordGridTriggerはこの入れ物のinnerHTMLだけを差し替える。 */
+  private recordGridTriggerThumbSlot: HTMLSpanElement | null = null;
+  /** 中央バッジの右側の▶（Issue #3：過去に戻る入口をこのトリガー1箇所へ
+   *  統合）。今日を見ている間（historyOffset===0）はhiddenにする（ユーザー
+   *  指示：進むボタンは今日を見ている時は無くていい）——refreshRecordGrid
+   *  Trigger参照。左側の◀（1日戻る）は常時表示・常に有効のまま変化しない
+   *  （ユーザー指示：前日へ戻るボタンは今日を見ている間も出しておきたい）
+   *  ため、状態を更新する必要が無く、フィールドとして保持していない——
+   *  buildRecordGridTrigger内のローカル変数のまま。 */
+  private recordGridStepForwardBtn: HTMLButtonElement | null = null;
 
   private toolButtons = new Map<ToolbarTool, HTMLButtonElement>();
 
@@ -342,50 +369,94 @@ export class Toolbar {
     }
   }
 
-  /** 記録一覧画面（recordGrid.ts）の開閉トリガー。既存のツール選択ボタン群
+  /** 記録一覧画面（recordGrid.ts）への唯一の入口。既存のツール選択ボタン群
    *  （.toolbar-pill、道具バー本体）とは別に、呼び出し側が用意した独立カード
    *  （options.container、main.tsの#record-grid-trigger-slot）へ差し込む——
    *  DOM上も見た目上も道具バーとは別物にする（ユーザー指示：完全に別で
-   *  見えるようにしたい）。押すたびに開閉が入れ替わるが、「今開いているか」の
-   *  状態自体はonToggleの呼び出し側（main.ts）が持つため、道具ボタン
-   *  （toolButtons）のようなaria-pressedでの押下状態表示はここでは持たせない。 */
+   *  見えるようにしたい）。
+   *
+   *  中央のバッジ（options.onToggleGrid）＋その両脇の◀▶
+   *  （options.onStepBack/onStepForward）を横1列（.record-grid-trigger-row）
+   *  に並べる。◀（前日へ）は今日を見ている間も含め常時表示、▶（次の日へ）は
+   *  今日を見ている間はhiddenにする（ユーザー指示、refreshRecordGridTrigger
+   *  参照）。「今開いているか」「今
+   *  どの日を見ているか」の状態自体は呼び出し側（main.ts）が持つため、ここ
+   *  ではaria-pressed等の押下状態表示は持たせない。 */
   private buildRecordGridTrigger(options: RecordGridTriggerOptions): void {
+    const row = document.createElement("div");
+    row.className = "record-grid-trigger-row";
+
+    const stepBack = document.createElement("button");
+    stepBack.type = "button";
+    stepBack.className = "record-grid-trigger-step";
+    stepBack.setAttribute("aria-label", "前の日へ");
+    stepBack.textContent = "◀";
+    stepBack.addEventListener("click", () => options.onStepBack());
+
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "toolbar-btn record-grid-trigger-btn";
     btn.setAttribute("aria-label", "過去の記録");
-    btn.addEventListener("click", () => options.onToggle());
+    btn.addEventListener("click", () => options.onToggleGrid());
     this.attachToolTooltip(btn, "過去の記録");
-    options.container.appendChild(btn);
+    const thumbSlot = document.createElement("span");
+    thumbSlot.className = "record-grid-trigger-thumb-slot";
+    btn.appendChild(thumbSlot);
+
+    const stepForward = document.createElement("button");
+    stepForward.type = "button";
+    stepForward.className = "record-grid-trigger-step record-grid-trigger-step--forward";
+    stepForward.setAttribute("aria-label", "次の日へ");
+    stepForward.textContent = "▶";
+    stepForward.addEventListener("click", () => options.onStepForward());
+
+    row.appendChild(stepBack);
+    row.appendChild(btn);
+    row.appendChild(stepForward);
+    options.container.appendChild(row);
+
     this.recordGridTriggerBtn = btn;
-    this.refreshRecordGridTrigger();
+    this.recordGridTriggerThumbSlot = thumbSlot;
+    this.recordGridStepForwardBtn = stepForward;
   }
 
-  /** トリガーの中身を最新状態に合わせて描き直す。1日前（昨日）のキャンバスに
-   *  書き込みがあれば、その内容を小さく縮小レンダリングしたサムネイルを表示
-   *  する。昨日に何も書かれていなければ（archiveされていなければ）、記録
-   *  一覧のダミーセル（recordGrid.ts drawWeekdayBadge）と同じ、昨日の曜日を
-   *  示す円形バッジを表示する（ユーザー指示：一日前のキャンバスに何も書き
-   *  込まれていない場合は円形に曜日の文字を出す方式にしたい）——以前は
-   *  「過去の記録が1件も無ければ固定のグリッドアイコン」という別扱いだったが、
-   *  昨日を基準にした円形バッジがその場合（archiveが1件も無ければ昨日も
-   *  当然空）も自然に包含するため、固定アイコンの出番自体が無くなった。
-   *  朝リセットで新しい記録が増えた直後にも呼べるよう公開メソッドにしてある
-   *  （main.tsのvisibilitychangeハンドラ参照）。 */
-  refreshRecordGridTrigger(): void {
+  /** トリガーの中身を最新状態に合わせて描き直す。呼び出し側（main.ts
+   *  syncRecordGridTrigger）が「見せるべき日付」「▶を出すか」「記録一覧が
+   *  開いているか」を渡す——canStepForwardがfalse（今日を見ている）の間は
+   *  ▶を消す（ユーザー指示：進むボタンは今日を見ている時は無くていい）。
+   *  hidden属性ではなくdata-visible（style.css
+   *  .record-grid-trigger-step--forward）で出し分ける——hidden
+   *  （display:noneの瞬間切り替え）だとCSS transitionが効かず、出入りが
+   *  唐突になってしまう（ユーザー指摘）ため、幅・不透明度をなめらかに
+   *  変化させられるこちらの方式にした。消えている間はwidth:0＋
+   *  pointer-events:noneで場所も当たり判定も持たなくなるが、キーボード
+   *  操作からも外すためtabIndexも合わせて更新する。◀は常に表示・常に有効。
+   *  isGridOpenの間は中央バッジを押下状態にする。
+   *
+   *  中央バッジは常にdateKeyの曜日を示す円形バッジ（recordGrid.ts
+   *  drawWeekdayBadge、renderTriggerBadge参照）——以前はその日に実データが
+   *  あれば内容を縮小レンダリングして見せようとしていたが、26px四方では
+   *  手書きの線が潰れて判読できなかった（ユーザー指摘：プレビューがうまく
+   *  いっていない）ため撤回し、常にバッジ表示へ統一した。朝リセットで新しい
+   *  記録が増えた直後にも呼べるよう公開メソッドにしてある（main.tsの
+   *  visibilitychangeハンドラ参照）。 */
+  refreshRecordGridTrigger(dateKey: string, canStepForward: boolean, isGridOpen: boolean): void {
     const btn = this.recordGridTriggerBtn;
-    if (!btn) return;
-    const yesterdayKey = shiftDateKey(dateKeyFor(new Date()), -1);
-    const memos = loadArchive(yesterdayKey);
-    btn.innerHTML = "";
+    const thumbSlot = this.recordGridTriggerThumbSlot;
+    if (!btn || !thumbSlot) return;
+
+    if (this.recordGridStepForwardBtn) {
+      this.recordGridStepForwardBtn.dataset.visible = String(canStepForward);
+      this.recordGridStepForwardBtn.tabIndex = canStepForward ? 0 : -1;
+      this.recordGridStepForwardBtn.setAttribute("aria-hidden", String(!canStepForward));
+    }
+    btn.dataset.active = String(isGridOpen);
+
+    thumbSlot.innerHTML = "";
     const canvas = document.createElement("canvas");
     canvas.className = "record-grid-trigger-thumb";
-    btn.appendChild(canvas);
-    if (memos.length === 0) {
-      renderEmptyYesterdayBadge(canvas, yesterdayKey);
-    } else {
-      renderMemoThumbnail(canvas, memos, RECORD_GRID_TRIGGER_THUMB_SIZE_PX);
-    }
+    thumbSlot.appendChild(canvas);
+    renderTriggerBadge(canvas, dateKey);
   }
 
   /** 道具ボタンにホバー用の小さな案内（ペン／マーカー／テキスト／選択／

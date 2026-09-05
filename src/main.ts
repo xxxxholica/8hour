@@ -60,9 +60,7 @@ app.innerHTML = `
     </div>
     <div class="app-header-right">
       <div id="history-strip" class="history-strip">
-        <button type="button" id="history-back-tab" class="history-strip-btn" aria-label="前の日へ">◀</button>
         <span id="history-date-label" class="history-strip-label"></span>
-        <button type="button" id="history-forward-tab" class="history-strip-btn" aria-label="次の日へ" disabled>▶</button>
       </div>
     </div>
   </header>
@@ -110,18 +108,13 @@ const primarySlot = document.querySelector<HTMLDivElement>("#primary-slot")!;
 const colorSwatchSlot = document.querySelector<HTMLDivElement>("#panel-swatch-slot")!;
 const recordGridTriggerSlot = document.querySelector<HTMLDivElement>("#record-grid-trigger-slot")!;
 
-// footer-tools-rowのalign-items:stretchで.control-panelと縦幅を揃えている
-// （ユーザー指摘：縦幅を揃えたい）が、CSSのaspect-ratioだけでは
-// flex-basis:autoの幅（コンテンツ由来）が優先され、正方形にならなかった
-// （ユーザー指摘：正方形にしたい、実装時に確認済みの挙動）。
-// syncAppFooterHeightVarと同じ考え方で、実際に決まった高さをそのまま幅に
-// 反映することで、CSSの挙動に頼らず確実に幅=高さの正方形にする。
-const syncRecordGridTriggerSquare = () => {
-  const height = recordGridTriggerSlot.getBoundingClientRect().height;
-  if (height > 0) recordGridTriggerSlot.style.width = `${height}px`;
-};
-new ResizeObserver(syncRecordGridTriggerSquare).observe(recordGridTriggerSlot);
-syncRecordGridTriggerSquare();
+// 以前はトリガーの中身がボタン1個だけの時があり、幅<高さになってしまう
+// （縦横比が1:1にならない）ため、実測した高さをそのまま幅へ書き込んで
+// 正方形に強制するJS（旧syncRecordGridTriggerSquare）が必要だった。今は
+// 中身が常に◀[バッジ]▶の3点セットになり、そもそも正方形にする対象では
+// なくなった（ユーザー指示：前日へ戻るボタンを今日を見ている間も常時
+// 出しておきたい）ため、この仕組みごと撤去した——widthは
+// .record-grid-trigger-card（style.css）のfit-contentに任せる。
 
 const onToolChange = () => {
   canvasView.closeWritingSession();
@@ -138,7 +131,9 @@ const onToolChange = () => {
 // 定義済みであれば良く、ここで先に参照しても問題ない。
 const toolbar = new Toolbar(primarySlot, colorSwatchSlot, onToolChange, () => canvasView.undo(), {
   container: recordGridTriggerSlot,
-  onToggle: () => toggleRecordGridView(),
+  onToggleGrid: () => toggleRecordGridView(),
+  onStepBack: () => setHistoryOffset(historyOffset + 1),
+  onStepForward: () => setHistoryOffset(historyOffset - 1),
 });
 
 const getToolState = () => ({
@@ -180,35 +175,34 @@ new SettingsMenu(
   () => canvasView
 );
 
-// 過去めくり画面（E3-02〜04）：ヘッダー右上の専用帯（#history-strip、
-// ハンバーガーメニューと対称の位置、ユーザー指示）にある「◀」ボタンから、
-// 常時フルスクリーンの過去キャンバス（読み取り専用・ドラッグ元、
-// ArchiveCanvas）へ切り替わる。本日のキャンバス（canvasView）は
-// 表示中ただ隠すだけで、DOM上の場所を動かしたりズーム・パンを退避/固定/復元
-// したりする必要は無い——ドロップ先は本日のキャンバスの実物ではなく、
-// ドラッグ中だけ画面右端にスライドインする単純な矩形のドロップ帯（ユーザー
-// 指示：本日の内容を事前に視覚的に確認できる必要はない）。
+// 過去めくり画面（E3-02〜04）：常時フルスクリーンの過去キャンバス
+// （読み取り専用・ドラッグ元、ArchiveCanvas）へ切り替わる。本日のキャンバス
+// （canvasView）は表示中ただ隠すだけで、DOM上の場所を動かしたりズーム・パンを
+// 退避/固定/復元したりする必要は無い——ドロップ先は本日のキャンバスの実物では
+// なく、ドラッグ中だけ画面右端にスライドインする単純な矩形のドロップ帯
+// （ユーザー指示：本日の内容を事前に視覚的に確認できる必要はない）。
 //
 // 「今日→前の日→さらに前の日」と1日ずつ辿るだけの一方向ナビゲーション
 // （一覧・カレンダー・検索は持たない）。historyOffsetは0=過去めくり画面では
 // ない、1以上=「N日前」を表示中。
 //
-// ナビゲーションは「開く/前の日」「次の日/閉じる」のような兼用の操作を持たず、
-// 左右とも常に単一の意味だけを持つ（ユーザー指示）：左タブは常に「1日戻る」、
-// 右タブは常に「1日進む」。今日の状態で左タブを押すと1日前に移動し、その
-// 結果として過去めくり画面になる——「開く」という特別な動作ではなく、1日
-// 戻った結果そうなるだけ。1日前の状態で右タブを押すと今日に移動し、その
-// 結果として通常表示に戻る——「閉じる」という特別な動作ではなく、1日進んだ
-// 結果そうなるだけ。右タブは今日を見ている間（historyOffset===0）は
-// disabled（これ以上進めないため）。
+// 1日ずつ辿る◀▶操作は、以前はヘッダー右上の専用帯（#history-strip）が
+// 持っていたが、「過去に戻る入口が過去めくり帯と記録一覧トリガーの2箇所に
+// 分かれている」「深く過去へ潜った後、今日へ戻る手段が1日ずつ進む以外に無い」
+// という指摘（Issue #3）を受け、道具バー脇の記録一覧トリガー（toolbar.ts
+// buildRecordGridTrigger、main.tsのsyncRecordGridTrigger参照）へ統合した。
+// ヘッダー（#history-strip）は表示中の日付を伝えるだけの受動的なラベルに
+// なり、切り替え操作は一切持たない——トリガーは常にバッジの両脇に◀▶を
+// 出しっぱなしにする（ユーザー指示：前日へ戻るボタンは今日を見ている間も
+// 表示しておきたい）。◀（1日戻る）は常に有効、▶（1日進む）だけ今日を
+// 見ている間disabledにする。記録一覧グリッド側も「今日」マスを実データの
+// 有無に関わらず常にタップ可能にしてあり（recordGrid.ts buildTodayCell）、
+// どれだけ過去へ潜っていてもグリッドを開いて今日のマスを押せば一発で戻れる。
 //
 // 帯（#history-strip）自体はキャンバスの外＝ヘッダーに置く固定要素のため、
 // 画面幅に関わらずキャンバスへの重なりが無く、キャンバス自体は常に画面幅
-// いっぱいまで広げられる（ユーザー指示）。左右のボタンと中央の日付ラベルは
-// 常時同じ場所に表示し続け、今日は「今日」、それ以外は
+// いっぱいまで広げられる（ユーザー指示）。今日は「今日」、それ以外は
 // 「N月N日」を表示する（updateHistoryDateLabel参照）。
-const historyBackTab = document.querySelector<HTMLButtonElement>("#history-back-tab")!;
-const historyForwardTab = document.querySelector<HTMLButtonElement>("#history-forward-tab")!;
 const historyView = document.querySelector<HTMLDivElement>("#history-view")!;
 const historyDateLabel = document.querySelector<HTMLSpanElement>("#history-date-label")!;
 const archiveCanvasWrap = document.querySelector<HTMLDivElement>("#archive-canvas-wrap")!;
@@ -361,12 +355,6 @@ function readInitialHistoryStateFromUrl(): number | null {
   return offset >= 1 ? offset : null;
 }
 
-/** 右タブ（1日進む）の活性状態を、現在地に合わせて更新する。今日
- *  （historyOffset===0）はこれ以上進めないため無効化する。 */
-function syncHistoryForwardTabState(): void {
-  historyForwardTab.disabled = historyOffset === 0;
-}
-
 /** `#canvas-panel`内の3画面（本体キャンバス／日付めくり／記録一覧）の表示を
  *  差し替える唯一の入口。同じ画面への切り替えは何もしない（no-op）ため、
  *  setHistoryOffsetのように「今と違う時だけ」を呼び出し側が判定する必要は
@@ -381,7 +369,15 @@ function syncHistoryForwardTabState(): void {
  *  activeView自体はこの関数を呼んだ時点で即座に新しい行き先へ更新する——
  *  historyOffset同期（setHistoryOffset）やrecordGrid.deactivate()呼び出し等、
  *  「今どの画面に向かっているか」を参照する他のロジックが、フェード中の
- *  宙ぶらりんな状態を気にせず動けるようにするため。 */
+ *  宙ぶらりんな状態を気にせず動けるようにするため。
+ *
+ *  冒頭の早期リターン（同じ画面への切り替えは何もしない）があるため、
+ *  ここではフッターの記録一覧トリガー（syncRecordGridTrigger）を呼ばない
+ *  ——過去めくり中に◀▶で日をまたいでもactiveViewは"history"のまま変わら
+ *  ないため、ここに置くとその間トリガーのバッジ（曜日表示）だけ更新されず
+ *  日付ラベルに追いつかなくなる不具合があった（ユーザー報告：日付の変更に
+ *  曜日表示が間に合っていない）。呼び出し側（setHistoryOffset、
+ *  toggleRecordGridView、handleRecordGridClose）がそれぞれ自分で呼ぶ。 */
 function setActiveView(view: PanelView): void {
   if (activeView === view) return;
   if (pendingViewTransition !== null) {
@@ -399,19 +395,50 @@ function setActiveView(view: PanelView): void {
   }, FADE_TRANSITION_MS);
 }
 
-/** 表示中の日付（historyOffset）を差し替える唯一の入口。呼び出し側（左右
- *  タブ、記録一覧のセルタップ）は「次にいくつにしたいか」だけを渡す——
- *  「開く」「閉じる」という特別な動作は無く、1日戻る/進むの結果として表示が
- *  切り替わるだけ（ユーザー指示）。表示の切り替え自体はsetActiveViewに
+/** 表示中の日付（historyOffset）を差し替える唯一の入口。呼び出し側（記録
+ *  一覧トリガーの◀▶、記録一覧のセルタップ）は「次にいくつにしたいか」だけを
+ *  渡す——「開く」「閉じる」という特別な動作は無く、1日戻る/進むの結果として
+ *  表示が切り替わるだけ（ユーザー指示）。表示の切り替え自体はsetActiveViewに
  *  委ねるため、記録一覧を表示中にここが呼ばれても（セルタップ）正しく
- *  記録一覧→日付めくりへ直接遷移する。 */
+ *  記録一覧→日付めくりへ直接遷移する。historyOffsetをsetActiveViewより先に
+ *  更新する——末尾のsyncRecordGridTrigger()がトリガーのバッジに使う日付
+ *  （currentTriggerDateKey）を、更新後の値で計算できるようにするため。
+ *  setActiveViewの早期リターン（同じ画面内での日またぎ）に関わらず、
+ *  historyOffsetが変わり得るここでは常にsyncRecordGridTrigger()を呼ぶ。 */
 function setHistoryOffset(newOffset: number): void {
-  setActiveView(newOffset !== 0 ? "history" : "canvas");
   historyOffset = newOffset;
+  setActiveView(newOffset !== 0 ? "history" : "canvas");
   updateHistoryDateLabel();
   if (newOffset !== 0) syncHistoryPane();
-  syncHistoryForwardTabState();
   syncHistoryUrl();
+  syncRecordGridTrigger();
+}
+
+/** フッターの記録一覧トリガー（toolbar.ts）に見せる、今表示している日付の
+ *  キー——常にhistoryOffset（0=今日）が指す日そのもの。以前は今日を見ている
+ *  間だけ「昨日」を見せていた（トリガーが実データを縮小プレビューしていた
+ *  頃の名残——今日はまだarchiveされていないため）が、バッジ表示専用へ
+ *  変えた（renderTriggerBadge参照）ことでその理由は無くなっており、逆に
+ *  「日曜0時台なのに土曜の曜日バッジが出る」というズレとして見えてしまって
+ *  いた（ユーザー指摘：今日の日付が正確に反映されていない）。
+ *  historyDateKeyForOffset(0)は（-0日シフト＝そのまま）today自身と等しい
+ *  ため、offset===0の特別扱いは不要——常にhistoryDateKeyForOffsetへ委ねる。 */
+function currentTriggerDateKey(): string {
+  return historyDateKeyForOffset(historyOffset);
+}
+
+/** フッターの記録一覧トリガーの見た目を、今の状態（historyOffset/
+ *  activeView）に合わせて更新する。呼び出し側（setHistoryOffset、
+ *  toggleRecordGridView、handleRecordGridClose）がhistoryOffsetまたは
+ *  activeViewを変更するたびに自分で呼ぶ——setActiveView内には置かない
+ *  （その冒頭の早期リターンにより、過去めくり中の日またぎで呼ばれずじまいに
+ *  なる不具合があった、Issue #3）。▶（1日進む）は今日を見ている間
+ *  （historyOffset===0）だけ非表示にする——◀（1日戻る）は今日を見ている
+ *  間も含め常に表示・常に有効（ユーザー指示：前日へ戻るボタンは今日を
+ *  見ている時も出しておきたい／進むボタンは今日を見ている時は無くていい）。
+ *  記録一覧を開いている間は中央バッジを押下状態にする。 */
+function syncRecordGridTrigger(): void {
+  toolbar.refreshRecordGridTrigger(currentTriggerDateKey(), historyOffset > 0, activeView === "recordGrid");
 }
 
 /** 記録一覧トリガー（footerの独立カード、canvas-panelの外に常設のため
@@ -424,10 +451,12 @@ function setHistoryOffset(newOffset: number): void {
 function toggleRecordGridView(): void {
   if (activeView === "recordGrid") {
     setActiveView(viewBeforeRecordGrid);
+    syncRecordGridTrigger();
     return;
   }
   viewBeforeRecordGrid = activeView;
   setActiveView("recordGrid");
+  syncRecordGridTrigger();
 }
 
 /** 記録一覧（recordGrid.ts）内でのマス以外のタップ・Escapeキー・セルタップが
@@ -443,22 +472,9 @@ function handleRecordGridClose(dateKey: string | null): void {
     setHistoryOffset(daysBetween(dateKey, dateKeyFor(new Date())));
   } else {
     setActiveView(viewBeforeRecordGrid);
+    syncRecordGridTrigger();
   }
 }
-
-// 左右タブはどちらも同期的に完結し（await・Promiseは無く、副作用の
-// ResizeObserverもhistoryOffset自体は参照しない冪等な再計算のみ）、クリック
-// イベントはJSのシングルスレッド性により1つずつ完了してから次が処理される
-// ため、連打してもhistoryOffsetの読み書きが割り込まれて不整合になることは
-// 無い（以前のpendingViewRestoreは非同期コールバックが古い保留値を後から
-// 適用してしまう問題だったが、ここでは分岐の元になる状態を非同期側が保持・
-// 上書きすることが無いため、同種の競合は起こらない——調査済み、ユーザー
-// 確認事項）。
-historyBackTab.addEventListener("click", () => setHistoryOffset(historyOffset + 1));
-historyForwardTab.addEventListener("click", () => {
-  if (historyOffset === 0) return; // disabled中の保険（通常はクリック自体届かない）
-  setHistoryOffset(historyOffset - 1);
-});
 
 // 起動時にURLへ過去めくり画面の状態が残っていれば、通常表示ではなく
 // 直接その日付の過去めくり画面から始める。
@@ -467,8 +483,11 @@ if (initialHistoryOffset !== null) {
   setHistoryOffset(initialHistoryOffset);
 } else {
   updateHistoryDateLabel();
-  syncHistoryForwardTabState();
 }
+// setHistoryOffset経由（上のtrue分岐）でもsetActiveView内から既に呼ばれて
+// いるが、else分岐（今日のまま起動）はsetActiveViewを一切通らないため、
+// フッターのトリガー初期表示をここで明示的に同期する。
+syncRecordGridTrigger();
 
 // 初回起動時は、使い方ページを自動でポップアップ表示する（ユーザー指示）。
 // usageGuide.ts側のopen()がmarkUsageGuideSeen()を呼ぶため、一度でも見れば
@@ -490,7 +509,7 @@ document.addEventListener("visibilitychange", () => {
     maybeShowFirstResetHint();
     // 朝リセットで新しいarchive日付が増えた直後は、道具バー横のトリガー
     // （最新日のサムネイル）も古いままなので描き直す。
-    toolbar.refreshRecordGridTrigger();
+    syncRecordGridTrigger();
   }
 });
 
