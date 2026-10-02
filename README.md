@@ -2,6 +2,8 @@
 
 「ためない、整理しない、忘れるための裏紙」— 正方形・角丸のキャンバスに書いたメモを、そのまま置いておける個人用メモアプリ。
 
+🌐 **Web版**: [enso.hinata.works](https://enso.hinata.works)
+
 Notionのような体系化されたドキュメント置き場でも、ToDoアプリのような確定タスクの管理でも、Claude/ChatGPTのような具体的な壁打ち相手でもない。「この仕様なんか引っかかる」「AとBを組み合わせたら筋がいいかも」といった、まだ仕様にもタスクにもプロンプトにもなっていない思考の種を、他のツールに渡す前にいったん受け止める場所として作られている。完全にローカルで動く個人用のキャンバス。アプリ内の表記・ページタイトルは「円相（えんそう）」——プロダクト名としては維持しているが、キャンバスの形状自体は下記の通り正方形・角丸（ネイティブ版の設計決定に合わせた変更）。
 
 ## 何もしなくていい、という設計
@@ -21,35 +23,11 @@ Notionのような体系化されたドキュメント置き場でも、ToDoア�
 
 ## フレーム
 
-キャンバスは正方形・角丸の枠（`src/frameShape.ts`の`CANVAS_FRAME_SHAPE`、`src/frameGeometry.ts`）で描かれている。角丸の半径は具体的な指定がまだ無いため、見た目として自然な値を仮置きしている。枠線は持たず、紙の輪郭に沿ったdrop-shadowで浮かせる見た目にしている（柄の選択肢は撤去済み）。
+キャンバスは正方形・角丸の枠（`src/frameShape.ts`の`CANVAS_FRAME_SHAPE`、`src/frameGeometry.ts`）で描かれている。角丸の半径は見た目として自然な値を設定している。枠線は持たず、紙の輪郭に沿ったdrop-shadowで浮かせる見た目にしている。
 
-（旧版は「メガネのレンズ」という円形のビジュアルモチーフ上に個人キャンバスを描いていたが、ネイティブ版のキャンバス形状決定（正方形・角丸）に合わせてこのWeb版でも置き換えた。レンズの丸み・柄の質感表現・単眼鏡のツル（チェーン）飾りなど円形専用の描画ロジックは撤去し、正方形・角丸のシンプルな境界判定に一本化している。）
+（旧版は「メガネのレンズ」という円形のビジュアルモチーフ上に個人キャンバスを描いていたが、ネイティブ版のキャンバス形状決定（正方形・角丸）に合わせてこのWeb版でも置き換えた。レンズの丸み・柄の質感表現など円形専用の描画ロジックは撤去し、正方形・角丸のシンプルな境界判定に一本化している。）
 
-## 技術スタック
-
-- **フロントエンド**：TypeScript + Vite + Canvas API（UIフレームワークは使用していない）
-- **アイコン**：Phosphor Icons（Bold weight）のSVGパスを`src/icons.ts`に直接埋め込み。npm依存としては追加していない
-- **永続化**：`localStorage`のみ。サーバーとの通信は一切行わない
-
-外部通信は一切発生しない、完全にローカルで動くアプリ。
-
-## セットアップ
-
-```bash
-npm install
-npm run dev       # 開発サーバー
-npm run build     # 型チェック + 本番ビルド（dist/ に静的ファイル出力）
-npm run preview   # dist/ をローカルで確認
-npm run test      # vitest（当たり判定・永続化ロジックのユニットテスト）
-```
-
-`dist/` の中身はそのまま Vercel / Netlify / GitHub Pages 等の静的ホスティングに配置できる。ビルド成果物はSPAではなく単一の静的`index.html`のため、追加のルーティング設定（rewrite等）は不要。
-
-## デプロイ
-
-本番は [enso.hinata.works](https://enso.hinata.works) で公開している。デプロイは`npm run build`で生成した`dist/`をそのままホスティング先に配置するだけで、サーバー側の状態は持たない（永続化はブラウザの`localStorage`のみ）。
-
-## 機能
+## 主な機能
 
 1. **正方形・角丸のキャンバス表示**（パン・スクロールなし。キャンバス全体を常に表示）。2本指ピンチで1〜3倍までズームでき、iOS純正ピンチズームは`preventDefault`で抑止している
 2. **ドラッグでの手描き入力**（キャンバスの外にはみ出さないようクランプ、正規化座標で保存するためウィンドウサイズが変わっても位置がずれない）
@@ -78,24 +56,32 @@ npm run test      # vitest（当たり判定・永続化ロジックのユニッ
 - `Memo` は `kind: "stroke" | "text"` の判別可能な union 型で、描画は`src/memoRenderer.ts`の`renderMemoAt`に共通化されている
 - コアループの利用実態計測（E8-06）：エクスポート（PNG/TXT）操作のたびに`exportEvents`へ`{timestamp, kind}`を記録し、朝リセットでアーカイブする際にその日のうちにエクスポートが使われていたかを`archiveExportFlags`へ日付ごとに記録する（`src/storage.ts`）。集計用のダッシュボードやUI表示は持たず、後からlocalStorageの中身を直接見て集計する前提
 
-## 動作確認
+## 開発・ビルド
 
-- `npm run test`：5ファイル・100件のユニットテストが通過（`test/geometry.test.ts`・`test/memoStore.test.ts`・`test/storage.test.ts`・`test/textLayout.test.ts`・`test/dailyReset.test.ts`）。当たり判定、テキストの折り返し・文字サイズ下限、ストアの永続化・復元・移行（旧バージョンのフィールドを無視して読み込めることを含む）、undo/redo、朝リセット・アーカイブ・エクスポート計測などをカバー
-- `npm run build`：型エラーなくビルド成功、`dist/` に静的ファイル出力
-- `scripts/` 配下：Playwrightによる実ブラウザでの一連の操作確認スクリプト（`smoke.mjs`・`smoke-toolbar.mjs`・`smoke-v3.mjs`・`smoke-text.mjs`・`smoke-move.mjs`・`check-responsive.mjs`・`check-resize-stability.mjs`）。道具バー構成の変更を反映しきれていない可能性があるため、道具バー周りを触った際は内容の陳腐化がないか確認すること
-  ```bash
-  npm run build && npm run preview -- --port 4173 &
-  node scripts/smoke.mjs
-  node scripts/smoke-toolbar.mjs
-  node scripts/smoke-v3.mjs
-  node scripts/smoke-text.mjs
-  node scripts/smoke-move.mjs
-  node scripts/check-responsive.mjs
-  node scripts/check-resize-stability.mjs
-  ```
+サーバーとの通信は一切行わない、完全にブラウザローカルで動く静的Webアプリケーションです（永続化はブラウザの`localStorage`のみ）。
+
+- **技術スタック**：TypeScript + Vite + Canvas API
+- **アイコン**：Phosphor Icons（Bold weight）のSVGパスを`src/icons.ts`に直接埋め込み（外部依存なし）
+- **テスト**：Vitest（当たり判定・永続化ロジック等）およびPlaywrightスモークテスト
+
+```bash
+npm install
+npm run dev     # 開発サーバー起動
+npm run build   # 本番ビルド（dist/ に静的ファイル出力）
+npm run preview # ビルド成果物のローカル確認
+npm run test    # ユニットテスト実行
+```
+
+ビルド成果物（`dist/`）は単一の静的`index.html`とアセット群で構成されるため、任意の静的ホスティング環境（Cloudflare Pages、Vercel、Nginxなど）へそのままデプロイ可能です。
 
 ## 既知の制約
 
 - Google Fonts（Klee One / Noto Sans JP）はオンライン環境でのみ読み込まれる。オフラインやフォント読み込み失敗時はシステムのsans-serifにフォールバックする（レイアウト・機能には影響しない）
 - メモは消しゴムで消さない限り自動では消えない。日付が変わると当日のキャンバスは朝リセットで`archive:<日付>`へ自動退避され無期限保持されるが（「朝リセットと過去めくり」参照）、フォルダ分け・タグ付け・検索の機能は無いため、退避済みの過去のメモを見返す手段は1日ずつめくって目視するか、書き出し（PNG/TXT）に限られる
 - 消しゴムで手動削除する以外に、メモを一括で消す手段は無い
+
+## 開発の経緯
+
+本リポジトリは、jig.jp インターンシップ 2026（web-team-a）でのチーム開発成果物をベースにしています。
+
+インターン終了後、「思考の種を受け止める個人用作業台」としての純度を高めるため、眼鏡モチーフのUIから正方形・角丸のキャンバスへと刷新し、サーバー通信を排した完全ローカル完結の個人用メモアプリとして再設計・リファクタリングを行いました。
