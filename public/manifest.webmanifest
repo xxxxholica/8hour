@@ -1,7 +1,7 @@
 {
-  "name": "円相",
-  "short_name": "円相",
-  "description": "一枚の丸いキャンバスに、思いついたことをインクで書き留めるノートアプリ",
+  "name": "8HOUR",
+  "short_name": "8HOUR",
+  "description": "描き始めてから8時間だけ使える一枚の紙",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

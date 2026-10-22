@@ -1,109 +1,31 @@
 import { createFadeVisibility } from "./fadeVisibility";
 import { notifyClose, notifyOpen } from "./exclusivePopover";
 import { ICONS } from "./icons";
-import { dayOfWeek, drawWeekdayBadge } from "./recordGrid";
 import { DEFAULT_FONT_SIZE_STEP, FONT_SIZE_STEPS } from "./textLayout";
+import { DEFAULT_LIGHT_INK, isDarkThemeActive, resolveInkColor } from "./theme";
 import { PEN_LINE_WIDTH } from "./toolStyle";
 import type { DrawTool } from "./types";
 
-/** 記録一覧画面（recordGrid.ts）への独立トリガーの器と、押した時に呼ぶ
- *  コールバック。containerは.toolbar（道具選択のピル）とは別の、呼び出し側
- *  （main.ts）が用意する独立したカード要素——ここに差し込むことで、道具選択
- *  ボタン群とは背景・角丸を共有しない見た目にする（ユーザー指示：完全に別で
- *  見えるようにしたい）。
- *
- *  過去に戻る入口が過去めくり帯（ヘッダー）とこのトリガー（フッター）の
- *  2箇所に分かれており、かつ深く過去へ潜った後に今日へ戻る手段が乏しい、
- *  という指摘（Issue #3）を受け、このトリガー1箇所へ操作を統合した：
- *  - onToggleGrid：中央のバッジを押した時（記録一覧グリッドの開閉、以前の
- *    onToggleと同じ役割）
- *  - onStepBack/onStepForward：両脇の◀▶を押した時（1日戻る/進む）。◀は
- *    今日を見ている間も含め常時表示・常時有効（ユーザー指示：前日に戻る
- *    ボタンは今日を見ている時も出しておきたい）——「今日から1日戻る」も
- *    「開く」ではなく1日戻った結果として過去めくりになるだけ、という既存の
- *    考え方をそのまま踏襲している。「今開いているかどうか」「今どの日を
- *    見ているか」の判定・状態管理はすべて呼び出し側（main.ts）が持つ。 */
-export interface RecordGridTriggerOptions {
+export interface TopRightBarOptions {
   container: HTMLElement;
-  onToggleGrid: () => void;
-  onStepBack: () => void;
-  onStepForward: () => void;
+  onToggleDarkMode?: () => void;
 }
 
-/** トリガー中央のバッジ（.record-grid-trigger-thumb）の一辺（CSSピクセル）。
- *  ボタン本体（.toolbar-btn、2.375rem=38px）の内側に収まる大きさにする。
- *  以前はここに実際のメモ内容を縮小レンダリングしたサムネイルを出そうと
- *  していたが、26px四方では手書きの線が潰れて判読できず「プレビューが
- *  うまく見えない」という指摘があったため撤回し、記録一覧のダミーセルと
- *  同じ円形の曜日バッジ（drawWeekdayBadge）だけを常に描く方式に統一した
- *  （ユーザー指示）——このサイズでも崩れずに読めるのはこちらだけ。 */
-const RECORD_GRID_TRIGGER_THUMB_SIZE_PX = 26;
-
-/** プレビュー対象の日（今日を見ている間は昨日、過去めくり中は今見ている
- *  その日——main.tsのcurrentTriggerDateKey参照）の曜日を示す円形バッジを
- *  描く。実際にその日へ書き込みがあるかどうかは問わない（上記の理由により
- *  内容プレビューは行わない）。 */
-function renderTriggerBadge(canvas: HTMLCanvasElement, dateKey: string): void {
-  const dpr = Math.max(1, window.devicePixelRatio || 1);
-  const size = RECORD_GRID_TRIGGER_THUMB_SIZE_PX;
-  canvas.width = size * dpr;
-  canvas.height = size * dpr;
-  canvas.style.width = `${size}px`;
-  canvas.style.height = `${size}px`;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  const half = size / 2;
-  drawWeekdayBadge(ctx, half, half, half, dayOfWeek(dateKey));
-}
-
-/** "none"は「道具なし」（選択中の道具をもう一度押して解除した状態、
- *  ユーザー指示）。ボタンには対応せず、setTool内部でだけ使う——canvasView.ts
- *  はこの間、描画・消去・移動などキャンバスへの操作を一切受け付けない。 */
 export type ToolbarTool = DrawTool | "eraser" | "text" | "move" | "none";
-/** ボタンとして実際に並ぶ道具（"none"を除いたToolbarTool）。TOOL_ORDERの
- *  要素をこちらに絞ることで、ICONS[tool]等のインデックスアクセスが
- *  "none"分のエントリを要求されずに型チェックを通る。 */
 type SelectableTool = Exclude<ToolbarTool, "none">;
 
-export const DEFAULT_INK = "oklch(22% 0.012 55)";
+export const DEFAULT_INK = DEFAULT_LIGHT_INK;
 
-/** 「好きな色」の色相スライダーで選んだ色相(0〜360)を、実際に描画で使える
- *  インク色に変換する。settingsMenu.tsのcustomSwatchBackground()と同じ式
- *  （ペン・マーカーどちらにも使える、彩度控えめの中間的な明るさ）——専用の
- *  ネイティブ<input type="color">をやめてこちらに揃えたため、値の作り方も
- *  同じ考え方にしている。 */
 function customInkColor(hue: number): string {
   return `oklch(75% 0.15 ${hue})`;
 }
 
-/** customInkColor()の逆変換。ペン・マーカーで「好きな色」の色相スライダーを
- *  共有しているため、ポップオーバーを開いた時点のスライダーの位置が、開く前に
- *  選んでいた道具の色相のまま残ってしまい、実際に今の道具で使われている色
- *  （スワッチの表示）とスライダーの位置がずれる不具合があった。ポップオーバーを
- *  開く直前に今の道具の色からここで色相を逆算し、スライダーへ書き戻すことで
- *  一致させる（customInkColor由来の値でなければnullを返し、その場合はスライダーを
- *  動かさない）。 */
 function hueFromCustomInkColor(color: string): number | null {
   const match = /^oklch\(75% 0\.15 (-?\d+(?:\.\d+)?)\)$/.exec(color);
   return match ? Number(match[1]) : null;
 }
 
-/** 消しゴムの当たり判定半径（画面px、キャンバスの大きさに関わらず一定）の
- *  小/中/大の3段階。以前はペンの太さと同じくバーで連続的に選べるようにして
- *  いたが、「GoodNotesのように消しゴムは3段階の大きさから選ぶ形にしたい」
- *  というユーザー指示を受け、細かい調整よりも一目で選べることを優先して
- *  3段階のボタン選択に変更した（ペンの太さは連続スライダーのまま）。
- *  値は変更前の連続スライダーのmin/default/maxをそのまま踏襲している。 */
-const ERASER_SIZE_STEPS = { small: 8, medium: 16, large: 40 } as const;
-type EraserSizeStep = keyof typeof ERASER_SIZE_STEPS;
-const ERASER_SIZE_STEP_ORDER: EraserSizeStep[] = ["small", "medium", "large"];
-const ERASER_SIZE_STEP_LABEL: Record<EraserSizeStep, string> = { small: "小", medium: "中", large: "大" };
-const ERASER_SIZE_STEP_ICON: Record<EraserSizeStep, string> = {
-  small: ICONS.eraserSizeSmall,
-  medium: ICONS.eraserSizeMedium,
-  large: ICONS.eraserSizeLarge,
-};
+const DEFAULT_ERASER_RADIUS = 16;
 
 interface InkPreset {
   id: string;
@@ -111,30 +33,18 @@ interface InkPreset {
   color: string;
 }
 
-/** すぐ選べる固定インク3色（GoodNotes風の定番色、ユーザー指示）。ペン・
- *  テキストなど、マーカー以外の道具で使う。「黒」は既存の既定インク色
- *  （DEFAULT_INK）をそのまま使う——見た目・初期状態を変えないため。 */
 const PEN_PRESET_INKS: InkPreset[] = [
   { id: "black", label: "黒", color: DEFAULT_INK },
   { id: "red", label: "赤", color: "oklch(52% 0.2 25)" },
   { id: "blue", label: "青", color: "oklch(48% 0.16 258)" },
 ];
 
-/** マーカー専用の固定インク3色。マーカーでは黒はまず使わないだろう、という
- *  ユーザー指示により、ペン等とは別に色の三原色（CMY：シアン・マゼンタ・
- *  イエロー）を用意した。当初はペンの赤・青と同じ暗め・高彩度の値にしていたが、
- *  「濃すぎる、GoodNotesのようにもう少しパステル寄りにしたい」という指摘を
- *  受け、明度を上げ彩度を落として蛍光ペン・ハイライター寄りの淡い発色に
- *  調整した。 */
 const MARKER_PRESET_INKS: InkPreset[] = [
   { id: "cyan", label: "シアン", color: "oklch(85% 0.08 210)" },
   { id: "magenta", label: "マゼンタ", color: "oklch(82% 0.11 340)" },
   { id: "yellow", label: "イエロー", color: "oklch(90% 0.1 95)" },
 ];
 
-/** 鉛筆とペンはほぼ同じ機能（線を描くだけ）だったため1つに統合した（ユーザー指示）。
- *  並び順はペン→マーカー→消しゴム→テキスト→選択（ユーザー指示）。「戻る」は
- *  道具ではなくこの並びの最後に別枠で続く（buildTools参照）。 */
 const TOOL_ORDER: SelectableTool[] = ["pen", "marker", "eraser", "text", "move"];
 const TOOL_LABEL: Record<ToolbarTool, string> = {
   pen: "ペン",
@@ -146,31 +56,15 @@ const TOOL_LABEL: Record<ToolbarTool, string> = {
 };
 
 /**
- * Appleメモ風の道具バー: ペン／マーカー／テキスト／移動／消しゴムの切り替え、
- * フルカラーのインク色選択をまとめて扱う（鉛筆とペンはほぼ同じ機能だったため
- * 1つに統合した——ユーザー指示）。
+ * 左下の道具バー: ペン／マーカー／消しゴム／テキスト／選択の切り替えと
+ * 取り消し（戻る）を1列のピルにまとめて扱う。
  *
- * 見た目は下部に2枚の独立した浮いたカードとして分かれる（このToolbarクラスが
- * 両方を受け持つ、ユーザー指示：統合パネルではなくそれぞれ独立した見た目に
- * したい）:
- *   - 追従カード（colorSwatchContainer、#panel-swatch-slot）＝道具固有の
- *     詳細設定を、今選んでいる道具アイコンの真上に水平方向だけ追従させて
- *     表示する（ユーザー指示）。中身は道具によって出し分ける：
- *     ペン・マーカー・テキストの間はインクの色（固定3色＋「好きな色」の
- *     4スワッチ、buildSwatch）、消しゴムの間は大きさ（小/中/大、
- *     buildEraserSizeSteps）——どちらも同じカードの中で.hiddenを切り替えて
- *     排他的に表示する（syncFollowerCard参照）。選択（移動）の間はカード
- *     ごと非表示。カード自体（角丸・枠線・背景・影）は道具バー側と揃え、
- *     中身だけカード枠を持たない軽いアイコン列にする。
- *   - 道具バーのカード（.control-panel）内の.toolbar-tools＝「ツール選択
- *     ブロック」: 道具アイコンと「戻る」（issue #90）を同じ1列
- *     （.toolbar-pill）に、すべて同じ大きさ（.toolbar-btn）で並べる。
- *     文字サイズ・ペンの太さは選べる仕様をやめ、それぞれ
- *     DEFAULT_FONT_SIZE_STEP・PEN_LINE_WIDTH固定にした（ユーザー指示：PC操作
- *     でのペンは太さを都度選ぶ必要が薄い）ため、ここでは扱わない。
+ * 右上の独立ピル（#record-grid-trigger-slot）には、エクスポート・
+ * ダークモード切替・日付の切り替え（◀ [曜日バッジ] ▶）をまとめて配置する。
  *
- * DOMは初回に一度だけ組み立て、以降は状態が変わった箇所だけをピンポイントで
- * 更新する（innerHTMLを毎回作り直さない）。
+ * 右下のカラーバー（colorSwatchContainer、#panel-swatch-slot）は、
+ * 色を使う道具（ペン・マーカー・テキスト）を選択した時にアニメーション付きで
+ * 表示し、それ以外の時は非表示にする。
  */
 export class Toolbar {
   private el: HTMLElement;
@@ -178,105 +72,49 @@ export class Toolbar {
   private colorSwatchContainer: HTMLElement;
   private onChange?: () => void;
   private onUndo?: () => void;
-  /** 起動直後は道具なし状態にする（ユーザー指示）——開いてすぐ何かが選ばれて
-   *  いるのではなく、ユーザーが最初に道具を選ぶまでキャンバスは待機状態。 */
+  private onToggleDarkMode?: () => void;
   private tool: ToolbarTool = "none";
-  /** マーカー以外（ペン・テキスト等）で使う色。消しゴムの大きさが
-   *  ツールごとに別々の値を覚えているのと同じ考え方で、マーカーの色
-   *  （markerColor）とは独立して覚えておく——マーカーで色を変えても、
-   *  ペンに戻したときの色は変わらない。 */
   private drawColor: string = DEFAULT_INK;
-  /** マーカーで使う色。既定はMARKER_PRESET_INKSの1つ目（シアン）。 */
   private markerColor: string = MARKER_PRESET_INKS[0].color;
-  private eraserRadius: number = ERASER_SIZE_STEPS.medium;
-
-  /** 記録一覧画面への独立トリガー本体。RecordGridTriggerOptionsが渡されな
-   *  かった（呼び出し側が使わない）場合はnullのまま——refreshRecordGridTrigger
-   *  は何もしない。 */
-  private recordGridTriggerBtn: HTMLButtonElement | null = null;
-  /** サムネイル（canvas）だけを差し替えるための入れ物。以前はbtn自身の
-   *  innerHTMLを直接差し替えていたが、それだとattachToolTooltipがbtnへ
-   *  追加したツールチップ要素まで毎回消えてしまい、記録一覧トリガーの
-   *  ホバー案内が実際には二度と表示されないというバグがあった（発見・修正、
-   *  Issue #3の実装中に判明）。ツールチップとは別の子要素にサムネイルを
-   *  収め、refreshRecordGridTriggerはこの入れ物のinnerHTMLだけを差し替える。 */
-  private recordGridTriggerThumbSlot: HTMLSpanElement | null = null;
-  /** 中央バッジの右側の▶（Issue #3：過去に戻る入口をこのトリガー1箇所へ
-   *  統合）。今日を見ている間（historyOffset===0）はhiddenにする（ユーザー
-   *  指示：進むボタンは今日を見ている時は無くていい）——refreshRecordGrid
-   *  Trigger参照。左側の◀（1日戻る）は常時表示・常に有効のまま変化しない
-   *  （ユーザー指示：前日へ戻るボタンは今日を見ている間も出しておきたい）
-   *  ため、状態を更新する必要が無く、フィールドとして保持していない——
-   *  buildRecordGridTrigger内のローカル変数のまま。 */
-  private recordGridStepForwardBtn: HTMLButtonElement | null = null;
+  private eraserRadius: number = DEFAULT_ERASER_RADIUS;
 
   private toolButtons = new Map<ToolbarTool, HTMLButtonElement>();
-  /** 「戻る」ボタン本体（buildTools参照）。toolButtonsには含まれないため
-   *  （道具選択とは違い押下状態を持たない）、setToolsDisabledで一緒に
-   *  無効化する対象として別フィールドに保持する。 */
   private undoBtn!: HTMLButtonElement;
+  private darkModeBtn: HTMLButtonElement | null = null;
+  private darkModeIconSlot: HTMLSpanElement | null = null;
 
-  /** 消しゴムの大きさ（小/中/大）を選ぶボタンの行（buildEraserSizeSteps参照）。
-   *  追従カード（colorSwatchContainer）内で.panel-swatches-row（色スワッチの
-   *  行）と排他的に表示する（syncFollowerCard参照）。 */
-  private eraserSizeWrap!: HTMLElement;
-  private eraserSizeButtons = new Map<EraserSizeStep, HTMLButtonElement>();
-
-  /** 色スワッチの行（buildSwatch参照）。追従カード内でeraserSizeWrapと
-   *  排他的に表示する。 */
-  private swatchRow!: HTMLElement;
-  /** 固定3スワッチのボタン本体。IDでなく位置（0〜2）で持つ——道具が
-   *  マーカーかどうかでPEN_PRESET_INKS/MARKER_PRESET_INKSのどちらを表示するか
-   *  が変わるため、ボタン自体は使い回し、中身（背景色・ラベル）をsyncSwatchで
-   *  差し替える。 */
   private presetButtons: HTMLButtonElement[] = [];
   private customSwatchBtn!: HTMLButtonElement;
-  /** 「好きな色」ポップオーバーの器（.icon-anchor）・中身・開閉制御。以前は
-   *  ネイティブの<input type="color">を直接クリックで開閉していたが、ネイティブ
-   *  UIはページのCSSが一切効かずアニメーションを付けられない（ユーザー指示：
-   *  一瞬で開閉せず徐々に見えるようにしたい）ため、テーマのカラーパレット
-   *  （settingsMenu.ts）と同じ自前描画の色相スライダー＋.icon-popoverに
-   *  置き換えた。createFadeVisibilityで他のポップオーバーと同じフェードを、
-   *  exclusivePopoverで外側クリックでの自動クローズ・他ポップオーバーとの
-   *  排他制御を担う。 */
   private customColorAnchor!: HTMLElement;
   private customColorPopover!: HTMLElement;
   private customColorPopoverFade!: (show: boolean) => void;
   private customColorPopoverOpen = false;
   private readonly closeCustomColorPopoverRef = () => this.closeCustomColorPopover();
   private hueSlider!: HTMLInputElement;
-  /** カスタムスワッチ（4つ目）で一度でも選んだ色。GoodNotes同様、選んだ色は
-   *  そのスワッチ自体の色として残り続け、次回はクリックひとつで呼び戻せる。
-   *  ペン・マーカーどちらで選んでも共有する1つの値（枠は増やさない）。 */
   private customColor: string | null = null;
+  private lastSwatchPaletteMode: "pen" | "marker" | null = null;
 
   constructor(
     container: HTMLElement,
     colorSwatchContainer: HTMLElement,
     onChange?: () => void,
     onUndo?: () => void,
-    recordGridTrigger?: RecordGridTriggerOptions
+    options?: TopRightBarOptions
   ) {
     this.container = container;
     this.colorSwatchContainer = colorSwatchContainer;
     this.onChange = onChange;
     this.onUndo = onUndo;
+    this.onToggleDarkMode = options?.onToggleDarkMode;
 
     this.el = document.createElement("div");
     this.el.className = "toolbar";
     this.container.appendChild(this.el);
 
     this.buildTools();
-    if (recordGridTrigger) this.buildRecordGridTrigger(recordGridTrigger);
-    this.buildEraserSizeSteps(this.colorSwatchContainer);
+    if (options) this.buildTopRightBar(options);
     this.buildSwatch(this.colorSwatchContainer);
     this.syncAll();
-
-    // 画面幅が変わるとブレークポイントの切り替わり等でツール選択ボタンの
-    // 位置自体がずれるため、追従カードの位置を追い直す（Toolbarはアプリの
-    // 生存期間中1つだけ生成され破棄されないため、リスナーの解除は行わない
-    // ——他のシングルトン的なクラスと同じ扱い）。
-    window.addEventListener("resize", () => this.syncFollowerCard());
   }
 
   getTool(): ToolbarTool {
@@ -287,35 +125,23 @@ export class Toolbar {
     return this.tool === "marker" ? this.markerColor : this.drawColor;
   }
 
-  /** 今の道具に応じて表示すべき固定3色（マーカーだけ色の三原色、それ以外は
-   *  黒/赤/青）。 */
   private activePresetInks(): InkPreset[] {
     return this.tool === "marker" ? MARKER_PRESET_INKS : PEN_PRESET_INKS;
   }
 
-  /** 今の道具用の色を更新する（マーカーならmarkerColor、それ以外はdrawColor）。 */
   private setActiveColor(color: string): void {
     if (this.tool === "marker") this.markerColor = color;
     else this.drawColor = color;
   }
 
-  /** 基準円(半径340px)におけるフォントサイズ(px)。選べる仕様をやめ常にDEFAULT_FONT_SIZE_STEP
-   *  固定にした（ユーザー指示）。実際の描画時はtextLayout.fontPxForRenderでスケール・下限適用する。 */
   getFontSize(): number {
     return FONT_SIZE_STEPS[DEFAULT_FONT_SIZE_STEP];
   }
 
-  /** 基準円(半径340px)におけるペンの線の太さ(px)。選べる仕様をやめ常に
-   *  PEN_LINE_WIDTH固定にした（ユーザー指示：PC操作でのペンは太さを都度
-   *  選ぶ必要が薄く、固定にして見た目をスッキリさせたい）。実際の描画時は
-   *  toolStyle.toolRenderStyleでスケール・下限適用する。 */
   getLineWidth(): number {
     return PEN_LINE_WIDTH;
   }
 
-  /** 消しゴムの当たり判定半径(画面px)。buildEraserSizeStepsの小/中/大の
-   *  3段階から選ぶ（道具が消しゴムの間だけ表示・有効）。canvasView.tsの
-   *  eraseAt呼び出しで使う。 */
   getEraserRadius(): number {
     return this.eraserRadius;
   }
@@ -325,8 +151,6 @@ export class Toolbar {
     this.syncAll();
     this.onChange?.();
   }
-
-  // --- 左ブロック（ツール選択ブロック）：道具アイコンを1列に -----
 
   private buildTools(): void {
     const tools = document.createElement("div");
@@ -341,18 +165,12 @@ export class Toolbar {
       btn.className = "toolbar-btn";
       btn.setAttribute("aria-label", TOOL_LABEL[tool]);
       btn.innerHTML = ICONS[tool];
-      // 選択中の道具をもう一度押すと、道具なし状態へ解除する（ユーザー指示）
-      // ——トグル的な挙動で、押すたびに選ぶ/解除するを繰り返せる。
       btn.addEventListener("click", () => this.setTool(this.tool === tool ? "none" : tool));
       this.attachToolTooltip(btn, TOOL_LABEL[tool]);
       this.toolButtons.set(tool, btn);
       pill.appendChild(btn);
     }
 
-    // 「戻る」（issue #90）：モバイルの2本指タップは選択道具の間だけ動く
-    // （canvasView.ts参照）ため、道具を問わず使える取り消し手段として定番の
-    // ボタンをここに置く——道具選択とは違い押しても選んだ状態が残るわけ
-    // ではないため、toolButtons（アクティブ表示の対象）には含めない。
     const undoBtn = document.createElement("button");
     undoBtn.type = "button";
     undoBtn.className = "toolbar-btn";
@@ -366,6 +184,19 @@ export class Toolbar {
     tools.appendChild(pill);
   }
 
+  /** ダークモード切替時やOSのカラースキーム変化時に呼び出し、アイコンおよび
+   *  黒インクのスワッチ・ペン先表示色を現在のモードに合わせて更新する。 */
+  syncThemeState(): void {
+    const dark = isDarkThemeActive();
+    if (this.darkModeIconSlot) {
+      this.darkModeIconSlot.innerHTML = dark ? ICONS.lightMode : ICONS.darkMode;
+    }
+    if (this.darkModeBtn) {
+      this.darkModeBtn.setAttribute("aria-pressed", String(dark));
+    }
+    this.syncSwatch();
+  }
+
   private syncPill(): void {
     for (const [tool, btn] of this.toolButtons) {
       const active = this.tool === tool;
@@ -374,114 +205,30 @@ export class Toolbar {
     }
   }
 
-  /** 記録一覧画面（recordGrid.ts）への唯一の入口。既存のツール選択ボタン群
-   *  （.toolbar-pill、道具バー本体）とは別に、呼び出し側が用意した独立カード
-   *  （options.container、main.tsの#record-grid-trigger-slot）へ差し込む——
-   *  DOM上も見た目上も道具バーとは別物にする（ユーザー指示：完全に別で
-   *  見えるようにしたい）。
-   *
-   *  中央のバッジ（options.onToggleGrid）＋その両脇の◀▶
-   *  （options.onStepBack/onStepForward）を横1列（.record-grid-trigger-row）
-   *  に並べる。◀（前日へ）は今日を見ている間も含め常時表示、▶（次の日へ）は
-   *  今日を見ている間はhiddenにする（ユーザー指示、refreshRecordGridTrigger
-   *  参照）。「今開いているか」「今
-   *  どの日を見ているか」の状態自体は呼び出し側（main.ts）が持つため、ここ
-   *  ではaria-pressed等の押下状態表示は持たせない。 */
-  private buildRecordGridTrigger(options: RecordGridTriggerOptions): void {
+  private buildTopRightBar(options: TopRightBarOptions): void {
     const row = document.createElement("div");
     row.className = "record-grid-trigger-row";
 
-    const stepBack = document.createElement("button");
-    stepBack.type = "button";
-    stepBack.className = "record-grid-trigger-step";
-    stepBack.setAttribute("aria-label", "前の日へ");
-    stepBack.textContent = "◀";
-    stepBack.addEventListener("click", () => options.onStepBack());
-    this.attachToolTooltip(stepBack, "前の日へ");
+    // ダークモード切替ボタン（1クリックでライト⇔ダークを即座に切り替える）。
+    const darkModeBtn = document.createElement("button");
+    darkModeBtn.type = "button";
+    darkModeBtn.className = "toolbar-btn";
+    darkModeBtn.setAttribute("aria-label", "ダークモード切替");
+    const darkModeIconSlot = document.createElement("span");
+    darkModeIconSlot.className = "toolbar-btn-icon-slot";
+    darkModeBtn.appendChild(darkModeIconSlot);
+    darkModeBtn.addEventListener("click", () => {
+      this.onToggleDarkMode?.();
+      this.syncThemeState();
+    });
+    this.attachToolTooltip(darkModeBtn, "ダークモード");
+    this.darkModeBtn = darkModeBtn;
+    this.darkModeIconSlot = darkModeIconSlot;
+    row.appendChild(darkModeBtn);
 
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "toolbar-btn record-grid-trigger-btn";
-    btn.setAttribute("aria-label", "過去の記録");
-    btn.addEventListener("click", () => options.onToggleGrid());
-    this.attachToolTooltip(btn, "過去の記録");
-    const thumbSlot = document.createElement("span");
-    thumbSlot.className = "record-grid-trigger-thumb-slot";
-    btn.appendChild(thumbSlot);
-
-    const stepForward = document.createElement("button");
-    stepForward.type = "button";
-    stepForward.className = "record-grid-trigger-step record-grid-trigger-step--forward";
-    stepForward.setAttribute("aria-label", "次の日へ");
-    stepForward.addEventListener("click", () => options.onStepForward());
-    // ▶の文字自体は、幅がアニメーションで0に潰れる際にはみ出して見えない
-    // よう内側のspan（record-grid-trigger-step-glyph、overflow:hidden）に
-    // 収める——ホバー案内(.tool-tooltip)はボタン本体（stepForward）に直接
-    // 差し込む（attachToolTooltip）ため、ボタン自身にoverflow:hiddenを
-    // 付けてしまうとツールチップまで一緒に切り取られてしまう（style.css
-    // .record-grid-trigger-step--forward参照）。
-    const stepForwardGlyph = document.createElement("span");
-    stepForwardGlyph.className = "record-grid-trigger-step-glyph";
-    stepForwardGlyph.textContent = "▶";
-    stepForward.appendChild(stepForwardGlyph);
-    this.attachToolTooltip(stepForward, "次の日へ");
-
-    row.appendChild(stepBack);
-    row.appendChild(btn);
-    row.appendChild(stepForward);
     options.container.appendChild(row);
-
-    this.recordGridTriggerBtn = btn;
-    this.recordGridTriggerThumbSlot = thumbSlot;
-    this.recordGridStepForwardBtn = stepForward;
   }
 
-  /** トリガーの中身を最新状態に合わせて描き直す。呼び出し側（main.ts
-   *  syncRecordGridTrigger）が「見せるべき日付」「▶を出すか」「記録一覧が
-   *  開いているか」を渡す——canStepForwardがfalse（今日を見ている）の間は
-   *  ▶を消す（ユーザー指示：進むボタンは今日を見ている時は無くていい）。
-   *  hidden属性ではなくdata-visible（style.css
-   *  .record-grid-trigger-step--forward）で出し分ける——hidden
-   *  （display:noneの瞬間切り替え）だとCSS transitionが効かず、出入りが
-   *  唐突になってしまう（ユーザー指摘）ため、幅・不透明度をなめらかに
-   *  変化させられるこちらの方式にした。消えている間はwidth:0＋
-   *  pointer-events:noneで場所も当たり判定も持たなくなるが、キーボード
-   *  操作からも外すためtabIndexも合わせて更新する。◀は常に表示・常に有効。
-   *  isGridOpenの間は中央バッジを押下状態にする。
-   *
-   *  中央バッジは常にdateKeyの曜日を示す円形バッジ（recordGrid.ts
-   *  drawWeekdayBadge、renderTriggerBadge参照）——以前はその日に実データが
-   *  あれば内容を縮小レンダリングして見せようとしていたが、26px四方では
-   *  手書きの線が潰れて判読できなかった（ユーザー指摘：プレビューがうまく
-   *  いっていない）ため撤回し、常にバッジ表示へ統一した。朝リセットで新しい
-   *  記録が増えた直後にも呼べるよう公開メソッドにしてある（main.tsの
-   *  visibilitychangeハンドラ参照）。 */
-  refreshRecordGridTrigger(dateKey: string, canStepForward: boolean, isGridOpen: boolean): void {
-    const btn = this.recordGridTriggerBtn;
-    const thumbSlot = this.recordGridTriggerThumbSlot;
-    if (!btn || !thumbSlot) return;
-
-    if (this.recordGridStepForwardBtn) {
-      this.recordGridStepForwardBtn.dataset.visible = String(canStepForward);
-      this.recordGridStepForwardBtn.tabIndex = canStepForward ? 0 : -1;
-      this.recordGridStepForwardBtn.setAttribute("aria-hidden", String(!canStepForward));
-    }
-    btn.dataset.active = String(isGridOpen);
-
-    thumbSlot.innerHTML = "";
-    const canvas = document.createElement("canvas");
-    canvas.className = "record-grid-trigger-thumb";
-    thumbSlot.appendChild(canvas);
-    renderTriggerBadge(canvas, dateKey);
-  }
-
-  /** 道具ボタンにホバー用の小さな案内（ペン／マーカー／テキスト／選択／
-   *  消しゴム）を付ける（ユーザー指示）。既存の他ポップオーバーと同じ
-   *  .icon-popoverの見た目・フェード（createFadeVisibility）をそのまま流用し、
-   *  1単語だけの案内なので.tool-tooltipで詰まった見た目に整える。タッチでは
-   *  「押さずに触れる」状態が無く、タップの前後にちらつくだけになってしまう
-   *  ため、pointerType==="mouse"のときだけ働かせる（PCに限る、というユーザー
-   *  指示）。 */
   private attachToolTooltip(btn: HTMLButtonElement, label: string): void {
     const tooltip = document.createElement("span");
     tooltip.className = "icon-popover tool-tooltip";
@@ -495,64 +242,9 @@ export class Toolbar {
     btn.addEventListener("pointerleave", () => setVisible(false));
   }
 
-  // --- 追従カード内・道具固有の数値調整（今は消しゴムの大きさのみ） ---
-
-  /** 消しゴムの大きさを小/中/大の3段階のボタンから選ぶ（ユーザー指示：GoodNotes
-   *  のように3段階から選ぶ形にしたい——以前はペンと連続スライダーを共有して
-   *  いたが、ペンの太さ自体をPEN_LINE_WIDTH固定にしたためスライダーごと
-   *  廃止した）。フレーム形状・柄の選択（appearanceSelector.ts）と同じ
-   *  .toolbar-pill/.toolbar-btnの見た目を流用し、選択中のボタンだけ塗りつぶしの
-   *  丸が濃く見えるようdata-activeでハイライトする。追従カード（container）に
-   *  直接マウントし、道具が消しゴムの時だけ表示、それ以外は隠す
-   *  （syncFollowerCard参照）——以前は道具バー内の別ブロックに固定表示して
-   *  いたが、色スワッチと同じ追従カードへ統合した（ユーザー指示：消しゴムも
-   *  追従に加えたい）。 */
-  private buildEraserSizeSteps(container: HTMLElement): void {
-    this.eraserSizeWrap = document.createElement("div");
-    this.eraserSizeWrap.className = "toolbar-pill";
-
-    for (const step of ERASER_SIZE_STEP_ORDER) {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "toolbar-btn";
-      btn.setAttribute("aria-label", `消しゴムの大きさ: ${ERASER_SIZE_STEP_LABEL[step]}`);
-      btn.innerHTML = ERASER_SIZE_STEP_ICON[step];
-      btn.addEventListener("click", () => {
-        this.eraserRadius = ERASER_SIZE_STEPS[step];
-        this.syncEraserSizeSteps();
-        this.onChange?.();
-      });
-      this.eraserSizeButtons.set(step, btn);
-      this.eraserSizeWrap.appendChild(btn);
-    }
-
-    container.appendChild(this.eraserSizeWrap);
-  }
-
-  private syncEraserSizeSteps(): void {
-    for (const [step, btn] of this.eraserSizeButtons) {
-      const active = ERASER_SIZE_STEPS[step] === this.eraserRadius;
-      btn.dataset.active = String(active);
-      btn.setAttribute("aria-pressed", String(active));
-    }
-  }
-
-  /**
-   * インクの色: すぐ選べる固定3スワッチ＋4つ目の「好きな色」スワッチを横に
-   * 並べる（ユーザー指示：GoodNotesのように定番色をすぐ選べるようにし、4つ目
-   * でRGBの好きな色を選べるようにしたい）。固定3色は道具によって中身が変わる
-   * （マーカーだけ色の三原色、それ以外は黒/赤/青——ユーザー指示：マーカーで
-   * 黒はまず使わない）ため、ボタン自体は3つ作って使い回し、背景色・ラベルは
-   * syncSwatchで今の道具に合わせて差し替える。
-   * 道具バー（.control-panel）とは別の独立したカード（colorSwatchContainer、
-   * #panel-swatch-slot、style.css .panel-swatches）に常設する（ユーザー指示）。
-   * カード自体の見た目は道具バーと揃え、この行（.panel-swatches-row）自体は
-   * 個別のカード枠を持たせずアイコン・スワッチだけを直接並べる。
-   */
   private buildSwatch(container: HTMLElement): void {
     const row = document.createElement("div");
     row.className = "toolbar-swatches panel-swatches-row";
-    this.swatchRow = row;
 
     for (let i = 0; i < 3; i++) {
       const btn = document.createElement("button");
@@ -567,16 +259,9 @@ export class Toolbar {
       row.appendChild(btn);
     }
 
-    // 4つ目「好きな色」。ネイティブの<input type="color">はやめ、テーマの
-    // カラーパレット（settingsMenu.ts）と同じ自前描画の色相スライダーを
-    // .icon-popoverの中に置く（ユーザー指示：開閉を徐々に見えるようにしたい
-    // ——ネイティブUIではCSSが一切効かないため実現できなかった）。
     this.customColorAnchor = document.createElement("div");
     this.customColorAnchor.className = "icon-anchor toolbar-custom-color-anchor";
 
-    // 未使用のうちは「好きな色」だと一目で分かるよう虹色の見た目にする
-    // （style.cssの.toolbar-swatch--custom）。一度選んだ後は、その色そのものを
-    // 背景に出す（インラインstyleがクラス由来の背景より優先される）。
     this.customSwatchBtn = document.createElement("button");
     this.customSwatchBtn.type = "button";
     this.customSwatchBtn.className = "toolbar-swatch toolbar-swatch--custom";
@@ -618,10 +303,6 @@ export class Toolbar {
 
   private openCustomColorPopover(): void {
     if (this.customColorPopoverOpen) return;
-    // ペン・マーカーでスライダー（this.hueSlider）を共有しているため、開く前に
-    // 別の道具で動かした位置のまま残っていることがある。今の道具の実際の色に
-    // スライダーを合わせ直してから開く（表示されている色とスライダー位置の
-    // 不一致を防ぐ）。
     const hue = hueFromCustomInkColor(this.getColor());
     if (hue !== null) this.hueSlider.value = String(hue);
     notifyOpen(this.closeCustomColorPopoverRef, this.customColorAnchor);
@@ -636,135 +317,88 @@ export class Toolbar {
     notifyClose(this.closeCustomColorPopoverRef);
   }
 
-  /** 今の道具の固定3色（activePresetInks）をスワッチの背景・ラベルに反映し、
-   *  今の色（getColor）と一致するスワッチだけにリングを付けて選択中を示す
-   *  （文字列比較でよい——色の値はすべてこのクラス自身が設定するため、ユーザー
-   *  入力の表記ゆれを考慮する必要がない）。色を使わない道具（選択・消しゴム）
-   *  を選んでいる間はこの行ごと非表示になる（syncFollowerCard参照）ため、
-   *  ここでは常に「表示されている＝色を使う道具である」前提で組み立てる。 */
   private syncSwatch(): void {
+    const paletteMode: "pen" | "marker" = this.tool === "marker" ? "marker" : "pen";
+    const paletteChanged =
+      this.lastSwatchPaletteMode !== null &&
+      this.lastSwatchPaletteMode !== paletteMode &&
+      (this.tool === "pen" || this.tool === "marker" || this.tool === "text");
+    this.lastSwatchPaletteMode = paletteMode;
+
     const presets = this.activePresetInks();
     const color = this.getColor();
     let isPresetActive = false;
     presets.forEach((preset, i) => {
       const btn = this.presetButtons[i];
-      btn.style.background = preset.color;
+      btn.style.backgroundColor = resolveInkColor(preset.color);
       btn.setAttribute("aria-label", `インクの色: ${preset.label}`);
       const active = preset.color === color;
       btn.dataset.active = String(active);
       if (active) isPresetActive = true;
+      if (paletteChanged && typeof btn.animate === "function") {
+        btn.animate(
+          [
+            { transform: "scale(1)" },
+            { transform: "scale(0.8)", offset: 0.4 },
+            { transform: "scale(1)" },
+          ],
+          {
+            duration: 240,
+            delay: i * 25,
+            easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+          }
+        );
+      }
     });
     this.customSwatchBtn.dataset.active = String(!isPresetActive);
-    // このスワッチが選択中（＝3色プリセットのどれとも一致しない色を使っている）
-    // 間は、必ず今の道具の実際の色（color）をそのまま映す。this.customColorは
-    // ペン・マーカーで共有する1つの値のため、片方で選んだ後もう片方の道具に
-    // 切り替えて別の色相を選ぶと、選択中でない側のcustomColorが上書きされ、
-    // スワッチの背景（表示されている色）が実際に描画される色（書かれている色）と
-    // 食い違う不具合があった。選択中でない間だけ、次に呼び戻せるよう最後に
-    // 選んだ好きな色を控えとして表示する。
     if (!isPresetActive) {
-      this.customSwatchBtn.style.background = color;
+      this.customSwatchBtn.style.background = resolveInkColor(color);
     } else if (this.customColor) {
       this.customSwatchBtn.style.background = this.customColor;
+    } else {
+      this.customSwatchBtn.style.background = "";
     }
     this.syncToolIcons();
   }
 
-  /** 追従カード（colorSwatchContainer）を、今選んでいる道具アイコンの真上に
-   *  水平方向だけ追従させる（ユーザー指示）。中身は道具ごとに出し分ける
-   *  （色スワッチ⇔消しゴムの大きさ、ユーザー指示：消しゴムも追従に加えたい）。
-   *  どちらも使わない道具（選択）の間はカードごと非表示にする——道具アイコンの
-   *  真上に付いてくる以上、道具固有の設定を持たない道具の上に空・グレーの
-   *  カードが乗っているとかえって紛らわしいため。
-   *  位置合わせはtransform: translateXで行う——レイアウト上の「本来の
-   *  中央位置」（.app-footerのalign-items:centerによる中央寄せ）はそのままに、
-   *  見た目の位置だけをずらす。
-   *  この「本来の中央位置」を、カード自身のgetBoundingClientRect()（＝今の
-   *  transformを含んだ見た目上の位置）からではなく、親の.app-footerの中央
-   *  （footerRect.left + footerRect.width/2）から計算する——カードは
-   *  align-items:centerでfooterの中央に置かれるため、カード自身の transform
-   *  に一切左右されない。以前はカード自身のtransformを一度リセットしてから
-   *  測る方式だったが、transitionが効いたままだとリセット直後の
-   *  getBoundingClientRect()がアニメーション開始直後の「ほぼ直前の値」を
-   *  返してしまい、切り替えるたびに一瞬本来の位置を通り過ぎてから補正が
-   *  入るという見た目のガタつきがあった（ユーザー報告）。footer基準の計算に
-   *  変えたことで、カード自身のtransform状態を一切見ずに済み、この問題ごと
-   *  無くなる。 */
   private syncFollowerCard(): void {
-    const showsSwatches = this.tool === "pen" || this.tool === "marker" || this.tool === "text";
-    const showsEraserSizes = this.tool === "eraser";
-    this.swatchRow.hidden = !showsSwatches;
-    this.eraserSizeWrap.hidden = !showsEraserSizes;
-    if (!showsSwatches) this.closeCustomColorPopover();
-
-    if (!showsSwatches && !showsEraserSizes) {
-      this.colorSwatchContainer.hidden = true;
-      return;
+    const isColorActive = this.tool === "pen" || this.tool === "marker" || this.tool === "text";
+    if (!isColorActive) this.closeCustomColorPopover();
+    this.colorSwatchContainer.dataset.visible = String(isColorActive);
+    this.colorSwatchContainer.setAttribute("aria-hidden", String(!isColorActive));
+    for (const btn of this.presetButtons) {
+      btn.disabled = !isColorActive;
+      btn.tabIndex = isColorActive ? 0 : -1;
     }
-    this.colorSwatchContainer.hidden = false;
-
-    const btn = this.toolButtons.get(this.tool);
-    const footer = this.colorSwatchContainer.closest(".app-footer");
-    if (!btn || !(footer instanceof HTMLElement)) return;
-    const footerRect = footer.getBoundingClientRect();
-    const btnRect = btn.getBoundingClientRect();
-    const naturalCenterX = footerRect.left + footerRect.width / 2;
-    const offset = btnRect.left + btnRect.width / 2 - naturalCenterX;
-    this.colorSwatchContainer.style.transform = `translateX(${offset}px)`;
+    this.customSwatchBtn.disabled = !isColorActive;
+    this.customSwatchBtn.tabIndex = isColorActive ? 0 : -1;
   }
 
-  /** ペン・マーカーそれぞれの道具ボタン自身のペン先（ICONS.pen/markerの
-   *  インクだまり部分、--pen-tip-color/--marker-tip-color）に、今選んで
-   *  いる色（drawColor/markerColor）を反映する。GoodNotesのように、
-   *  道具を切り替えなくてもボタンを見れば今どの色で描くかが分かるように
-   *  する（ユーザー指示）。 */
   private syncToolIcons(): void {
     const penBtn = this.toolButtons.get("pen");
-    penBtn?.style.setProperty("--pen-tip-color", this.drawColor);
+    penBtn?.style.setProperty("--pen-tip-color", resolveInkColor(this.drawColor));
     const markerBtn = this.toolButtons.get("marker");
     markerBtn?.style.setProperty("--marker-tip-color", this.markerColor);
   }
 
   private syncAll(): void {
     this.syncPill();
-    this.syncEraserSizeSteps();
     this.syncSwatch();
+    this.syncThemeState();
     this.syncFollowerCard();
   }
 
-  /** 過去めくり画面（main.ts activeView==="history"）を表示している間、道具
-   *  選択ボタン（ペン・マーカー・消しゴム・テキスト・選択）と「戻る」ボタンを
-   *  操作不可にする（Issue #2）。過去めくり画面自体は仕様通り読み取り専用だが、
-   *  道具バーは本体キャンバス表示時と同じ見た目・操作可能な状態のまま残って
-   *  いたため、道具を選んで描こうとしても何も起きず「書き込みが機能していない」
-   *  ように見えてしまっていた（ユーザー報告）。「戻る」ボタンも同様に含める
-   *  ——onUndoは表示中の画面に関わらず常に今日のキャンバスを書き換えるため、
-   *  含めないと過去めくり中に押した際、見えていない今日のキャンバスの直前の
-   *  操作が黙って取り消されてしまう（ユーザー指摘）。ネイティブのdisabled
-   *  属性を使うことで、既存の.toolbar-btn:disabled（グレースケール化、
-   *  issue #79）をそのまま流用できる。
-   *
-   *  無効化する瞬間、道具自体も強制的に「選択」（move）へ切り替える
-   *  （ユーザー指摘）。過去めくり画面で実際にできる唯一の操作はメモを
-   *  ドラッグして現在のキャンバスへ移すこと（archiveCanvas.ts）で、道具の
-   *  概念としては「選択」に相当する。ボタンを無効化するだけで道具の状態
-   *  （this.tool）自体はそのままにしていたため、ペン・マーカー・テキストを
-   *  選んだまま過去めくりへ入ると、追従カード（色スワッチ、syncFollowerCard）
-   *  が過去めくり画面の上に乗ったまま表示され続ける不具合があった。 */
   setToolsDisabled(disabled: boolean): void {
-    if (disabled) this.setTool("move");
+    if (disabled) {
+      this.closeCustomColorPopover();
+      this.setTool("none");
+    }
     for (const btn of this.toolButtons.values()) {
       btn.disabled = disabled;
     }
     this.undoBtn.disabled = disabled;
   }
 
-  /** 道具バーで何も選ばず（または他の道具を選んだまま）キーボードから直接
-   *  文字を打ち始めた時（canvasView.ts onGlobalKeyDown/startTextInputAtCenter
-   *  経由、main.tsのCircularCanvasOptions.onAutoTextToolStart参照）に呼ぶ。
-   *  実際にはテキストメモの作成が始まっているのに道具バー上は元の道具の
-   *  ままで、キーボード入力を始めても何も選ばれていないように見えていた
-   *  （ユーザー指摘）ため、道具の表示を実態に合わせてテキストへ切り替える。 */
   activateTextTool(): void {
     this.setTool("text");
   }

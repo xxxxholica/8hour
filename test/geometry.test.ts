@@ -2,13 +2,17 @@ import { describe, expect, it } from "vitest";
 import {
   circleIntersectsBox,
   clampBoxCenter,
+  clampToRect,
   clampToRoundedRect,
+  computeMemoDisplayOffset,
+  computeResponsiveScale,
   eraseFromStroke,
   isInsideClamp,
   pointNearStroke,
   pointNearStrokes,
   pointToSegmentDistance,
 } from "../src/geometry";
+import type { StrokeMemo, TextMemo } from "../src/types";
 
 describe("clampToRoundedRect（キャンバスの枠：正方形・角丸）", () => {
   const roundedClamp = (p: { x: number; y: number }) => clampToRoundedRect(p, 1, 0.3);
@@ -157,5 +161,77 @@ describe("circleIntersectsBox（テキストメモの当たり判定: 消しゴ�
     // 矩形は x:[-5,5] y:[-2,2]。角(5,2)から少し外側の点。
     expect(circleIntersectsBox({ x: 6, y: 3 }, 1.5, box)).toBe(true);
     expect(circleIntersectsBox({ x: 6, y: 3 }, 1.3, box)).toBe(false);
+  });
+});
+
+describe("clampToRect / computeMemoDisplayOffset / computeResponsiveScale（全画面キャンバスのリサイズ追従）", () => {
+  it("clampToRectは指定した半幅・半高の矩形内に点を収める", () => {
+    expect(clampToRect({ x: 2.5, y: -1.8 }, 1.5, 1.2)).toEqual({ x: 1.5, y: -1.2 });
+    expect(clampToRect({ x: 0.4, y: -0.3 }, 1.5, 1.2)).toEqual({ x: 0.4, y: -0.3 });
+  });
+
+  it("ウィンドウが大きい状態から小さくなれば要素を画面内へ引き寄せ、また大きくなれば元の広い位置へ戻す", () => {
+    const memo: TextMemo = {
+      id: "m1",
+      kind: "text",
+      x: 1.4,
+      y: 0.8,
+      text: "テスト",
+      textLines: ["テスト"],
+      fontSize: 18,
+      boxWidth: 0.4,
+      boxHeight: 0.2,
+      createdAt: 1,
+      status: "active",
+      color: "oklch(22% 0.012 55)",
+      align: "center",
+      lineHeight: 1.35,
+      originHalfW: 2.0,
+      originHalfH: 1.2,
+    };
+
+    // 作成時と同じ広いウィンドウ（halfW=2.0, halfH=1.2）ではオフセット0
+    expect(computeMemoDisplayOffset(memo, 2.0, 1.2)).toEqual({ x: 0, y: 0 });
+
+    // ウィンドウが狭くなった（halfW=1.0, halfH=0.6）場合、外接矩形ごと画面内へ引き寄せられる
+    const shrunkOffset = computeMemoDisplayOffset(memo, 1.0, 0.6);
+    expect(shrunkOffset.x).toBeLessThan(0);
+    expect(shrunkOffset.y).toBeLessThan(0);
+    const displayedMaxX = memo.x + shrunkOffset.x + memo.boxWidth / 2;
+    const displayedMaxY = memo.y + shrunkOffset.y + memo.boxHeight / 2;
+    expect(displayedMaxX).toBeLessThanOrEqual(1.0 + 1e-6);
+    expect(displayedMaxY).toBeLessThanOrEqual(0.6 + 1e-6);
+
+    // 再びウィンドウを広げれば（halfW=2.2, halfH=1.5）、元の配置（オフセット0）に戻る
+    expect(computeMemoDisplayOffset(memo, 2.2, 1.5)).toEqual({ x: 0, y: 0 });
+  });
+
+  it("computeResponsiveScaleは単一メモが画面幅を超える場合にスケールを縮小し、画面が広がれば基準スケールへ戻す", () => {
+    const wideStrokeMemo: StrokeMemo = {
+      id: "s1",
+      kind: "stroke",
+      x: -1.5,
+      y: 0,
+      strokes: [
+        [
+          { x: -1.5, y: 0 },
+          { x: 1.5, y: 0 },
+        ],
+      ],
+      createdAt: 1,
+      status: "active",
+      tool: "pen",
+      color: "oklch(22% 0.012 55)",
+      lineWidth: 3.5,
+    };
+
+    // 狭い画面幅（widthPx=300, baseScale=200）ではスパン3.0が収まるようスケールが縮む
+    const smallScale = computeResponsiveScale(200, 300, 600, [wideStrokeMemo]);
+    expect(smallScale).toBeLessThan(200);
+    expect(smallScale * 3.0).toBeLessThanOrEqual(300);
+
+    // 広い画面幅（widthPx=1200, baseScale=200）になれば元のbaseScale(200)に戻る
+    const wideScale = computeResponsiveScale(200, 1200, 800, [wideStrokeMemo]);
+    expect(wideScale).toBe(200);
   });
 });

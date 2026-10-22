@@ -1,5 +1,3 @@
-@import url("https://fonts.googleapis.com/css2?family=Klee+One:wght@400;600&family=Noto+Sans+JP:wght@300;400;500&display=swap");
-
 /* --- デザイントークン ------------------------------------------------
    これまで色・余白・角丸・文字サイズがファイル中に生の値のまま何十回も
    複製されていて、後から一貫して調整するのが難しかった（UI再設計の
@@ -28,6 +26,7 @@
   --ink-08: oklch(22% 0.012 55 / 0.08);
   --ink-06: oklch(22% 0.012 55 / 0.06);
 
+  --paper-canvas: #f2ede6;
   --paper-0: oklch(97% 0.006 75);
   --paper-1: oklch(98% 0.005 75);
   --paper-2: oklch(93% 0.006 75);
@@ -118,12 +117,13 @@
     --ink-08: oklch(92% 0.006 75 / 0.08);
     --ink-06: oklch(92% 0.006 75 / 0.06);
 
-    --paper-0: oklch(38% 0.006 75);
-    --paper-1: oklch(42% 0.005 75);
-    --paper-2: oklch(34% 0.006 75);
-    --paper-2-hover: oklch(36% 0.008 75);
-    --paper-3: oklch(32% 0.008 75);
-    --paper-4: oklch(31% 0.008 75);
+    --paper-canvas: oklch(26% 0.006 75);
+    --paper-0: oklch(27% 0.006 75);
+    --paper-1: oklch(28% 0.005 75);
+    --paper-2: oklch(32% 0.006 75);
+    --paper-2-hover: oklch(34% 0.008 75);
+    --paper-3: oklch(36% 0.008 75);
+    --paper-4: oklch(24% 0.008 75);
 
     --rule-line: oklch(78% 0.07 240 / 0.55);
   }
@@ -148,27 +148,18 @@
   --ink-08: oklch(92% 0.006 75 / 0.08);
   --ink-06: oklch(92% 0.006 75 / 0.06);
 
-  --paper-0: oklch(38% 0.006 75);
-  --paper-1: oklch(42% 0.005 75);
-  --paper-2: oklch(34% 0.006 75);
-  --paper-2-hover: oklch(36% 0.008 75);
-  --paper-3: oklch(32% 0.008 75);
-  --paper-4: oklch(31% 0.008 75);
+  --paper-canvas: oklch(26% 0.006 75);
+  --paper-0: oklch(27% 0.006 75);
+  --paper-1: oklch(28% 0.005 75);
+  --paper-2: oklch(32% 0.006 75);
+  --paper-2-hover: oklch(34% 0.008 75);
+  --paper-3: oklch(36% 0.008 75);
+  --paper-4: oklch(24% 0.008 75);
 
   --rule-line: oklch(78% 0.07 240 / 0.55);
 }
 
 :root[data-theme="light"] {
-  color-scheme: light;
-}
-
-/* --- パステルテーマ（好きな色を選ぶカスタム、issue #138）。Chromeのテーマ
-   設定のように、選んだ単色の色相からパステルな配色一式を導き出す。実際の
-   ink-* / paper-*トークンの値は固定値ではなく選んだ色の色相に依存するため、
-   CSSではなくtheme.ts側でJSから計算してinline styleで:rootに設定する
-   （buildPastelThemeVars参照）——このブロックではcolor-schemeだけ静的に
-   指定する（常にlightな配色のため）。 --- */
-:root[data-theme="custom"] {
   color-scheme: light;
 }
 
@@ -227,12 +218,7 @@ body {
    （色相・彩度は元のvar(--paper-2)から変えず、明度だけ中心を明るく・
    縁を少し落とす。ユーザー指摘：初回の第一印象が弱い）。 */
 body {
-  background: radial-gradient(
-    circle at 50% 38%,
-    var(--paper-0) 0%,
-    var(--paper-2) 55%,
-    var(--paper-4) 100%
-  );
+  background: var(--paper-canvas);
   font-family: "Noto Sans JP", sans-serif;
   -webkit-font-smoothing: antialiased;
   color: var(--ink-solid);
@@ -276,72 +262,21 @@ body {
   top: 0;
   left: 0;
   right: 0;
-  /* .app-footerと同じ10のままだと、DOM順で後に来るfooter側が同じ値の場合に
-     手前になり、ヘッダーのメニュー（settings-popover、このヘッダーの子孫で
-     ヘッダーのスタッキングコンテキストに閉じ込められる）がツールバーの
-     広がった詳細パネル（好きな色ポップオーバー等）の裏に隠れてしまっていた
-     （ユーザー報告：重なった時にメニューを手前にしたい）。footerより1つ
-     高くして、メニューが常に手前に来るようにする。 */
   z-index: 11;
   width: 100%;
-  /* html/bodyのtouch-actionだけでは、position:fixedのこの帯の上で
-     iOS Safari純正のピンチズームが発動してしまう不具合があったため
-     （ユーザー報告）、同じ値をここにも明示的に持たせる。 */
   touch-action: pan-x pan-y;
   display: flex;
-  /* ワードマーク（.app-header-left）は中身の高さが違う要素と並ぶことがある
-     ため、center（既定の交差軸中央寄せ）のままだと互いの縦幅が揃わない
-     （ユーザー指摘）。stretchにして両方をこの行の高さいっぱいに広げ、
-     それぞれの内側のalign-items:centerで中身を改めて中央寄せすることで、
-     縦幅を揃えたまま見た目は変えない。 */
-  align-items: stretch;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
   padding: var(--space-3) var(--space-4);
   padding-top: calc(12px + env(safe-area-inset-top, 0px));
-  /* 中身（ワードマーク・ナビ文字・アカウントボタン）はどれも背景を持たない
-     プレーンな要素で、下に敷く色を近似しても色浮きが起きていた
-     （ユーザー指摘）。下部の操作パネル（.control-panel）が不透明な背景を
-     持っているのと同じ発想で、背景・ぼかし自体を持たせず、
-     下のキャンバスをそのまま透かす（ユーザー指示）。ズーム中はopacity 0.4の
-     減光で目立たなくなる。 */
+  pointer-events: none;
   transition: opacity 180ms ease;
 }
 
-.app-header-left {
-  display: flex;
-  align-items: center;
-  gap: var(--space-5);
-}
-
-/* --- 過去めくりの「前の日」「次の日」＋日付ラベルの帯（#history-strip）の器。
-   左上のハンバーガーメニュー（.app-header-left）と対称の位置に常設する
-   （ユーザー指示）。.app-headerが既にjustify-content:space-betweenのため、
-   左右にこの2つを置くだけで自然に両端へ振り分けられる——画面幅による配置の
-   出し分けは持たない。 --- */
-.app-header-right {
-  display: flex;
-  align-items: center;
-}
-
-/* --- アプリのワードマーク「円相」。禅の書画で一筆で描く円のことで、
-   このアプリの核（一枚の丸いキャンバスにインクで書く）をそのまま表す言葉
-   （ユーザー指示）。手描き風のKlee Oneで、UIの残りの部分（Noto Sans JP）
-   とは意図的に異なる書体にし、アプリ名だけの特別さを出す。 --- */
-.app-wordmark {
-  margin: 0;
-  font-family: "Klee One", "Noto Sans JP", sans-serif;
-  /* Klee OneはGoogle Fontsで400/600の2ウェイトしか読み込んでいない
-     （index.html参照）ため、700を指定しても600の字形をブラウザがわずかに
-     太らせる疑似ボールドにしかならず、狙った太さが出なかった（ユーザー
-     報告）。書体自体（Klee One）は変えないまま、字形の輪郭に細い縁取り
-     （-webkit-text-stroke）を足して太く見せる——実質は太らせるというより
-     縁取りで肉厚にする力技だが、フォントを差し替えずに済む。 */
-  font-weight: 700;
-  -webkit-text-stroke: 0.6px var(--ink-solid);
-  font-size: var(--text-lg);
-  letter-spacing: 0.02em;
-  color: var(--ink-solid);
+.top-right-card {
+  margin-left: auto;
 }
 
 .app-main {
@@ -370,7 +305,7 @@ body {
 #canvas-panel {
   position: relative;
   width: 100%;
-  padding: var(--space-1);
+  padding: 0;
   display: flex;
   flex-direction: column;
 }
@@ -399,86 +334,9 @@ body {
   display: contents;
 }
 
-/* --- 枠線を持たない代わり、紙の実際の輪郭（角丸の正方形）に沿って
-   drop-shadowで控えめに浮かせる（ユーザー指示）。box-shadowと違い、
-   要素の矩形ではなく実際に描画された不透明ピクセルの形に沿うため、
-   角丸の輪郭どおりの影になる。 --- */
 .circle-canvas {
   display: block;
   cursor: crosshair;
-  filter: var(--canvas-shadow);
-}
-
-/* --- 過去めくり画面の左側（archiveCanvas.ts）。読み取り専用でメモを掴んで
-   ドラッグして持ち出すだけなので、書き込み系の道具を示すcrosshairではなく
-   つかめることを示すgrabにする。影は.circle-canvasと同じ値
-   （--canvas-shadow）を使い、通常表示・過去閲覧表示で見た目を揃える
-   （ユーザー指示）。 --- */
-.archive-canvas {
-  display: block;
-  cursor: grab;
-  filter: var(--canvas-shadow);
-}
-
-.archive-canvas:active {
-  cursor: grabbing;
-}
-
-/* --- 過去めくり中の日付を伝えるだけの表示専用ラベル帯（main.ts
-   #history-strip）。ヘッダー右上（.app-header-right、ハンバーガーメニューと
-   対称の位置、ユーザー指示）に常設する——キャンバスやツールバーには一切
-   重ならない。
-   以前はここに◀▶（1日戻る/進む）ボタンも同居していたが、「過去に戻る入口が
-   ヘッダーとフッターの記録一覧トリガーの2箇所に分かれている」「今日への
-   直接復帰の手段が乏しい」という指摘（Issue #3）を受け、切り替え操作を
-   道具バー脇の記録一覧トリガー（.record-grid-trigger-card、下記）へ統合
-   した。ここは表示専用のラベル1つだけになったため、帯としての外枠は
-   持たせず、素のテキストを直接置くだけにしている。 --- */
-.history-strip {
-  display: flex;
-  align-items: center;
-}
-
-/* 周りに箱を持たない素のテキストとして置く。アイコンのみのハンバーガー
-   メニューと並んだ時に主張しすぎないよう、小さめのフォント・控えめな色に
-   する（ユーザー指摘）。 */
-.history-strip-label {
-  font-size: var(--text-xs);
-  font-weight: 500;
-  color: var(--ink-55);
-}
-
-/* --- 過去めくり画面本体（main.ts #history-view）。#canvas-panelと同じ
-   考え方でflex:1いっぱいに広げる——日付ラベルは#history-strip（ヘッダー側）
-   へ移り、この中は#archive-canvas-wrapだけの単純なflexコンテナになった。 --- */
-.history-view {
-  flex: 1 1 auto;
-  min-height: 0;
-  width: 100%;
-  display: flex;
-}
-
-.archive-canvas-wrap {
-  flex: 1 1 auto;
-  min-height: 0;
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* --- 記録一覧画面（main.ts #record-grid-view）。#history-viewと同じ考え方で
-   #canvas-panel内の同じ場所に本体キャンバス・日付めくり画面と入れ替え表示
-   する（ユーザー指示：過去の記録グリッドの表示方式変更——独立した浮遊
-   モーダルから、日付めくり画面と同じ「本体キャンバスの場所と入れ替える」
-   方式へ）。中身（.record-grid-sheet以下）の見た目はrecordGrid.ts参照。 --- */
-.record-grid-view {
-  flex: 1 1 auto;
-  min-height: 0;
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
 /* --- テキスト入力オーバーレイ。円のクリップ外に出しても構わないよう画面固定で、
@@ -504,20 +362,15 @@ body {
   overflow: hidden;
   box-sizing: border-box;
   padding: var(--space-1) 0.375rem;
-  border: 1px dashed oklch(22% 0.012 55 / 0.35);
+  border: 1px dashed var(--ink-35);
   border-radius: 6px;
-  background: oklch(98% 0.005 75 / 0.9);
+  background: color-mix(in oklch, var(--paper-1) 90%, transparent);
   text-align: center;
   outline: none;
 }
 
 /* モバイル（issue #87：pointer:coarseでキーボード直上に固定表示する分岐、
-   canvasView.ts openTextEditor参照）専用の見た目。上のコメントの通り通常は
-   「紙に直接書き込んでいる」ことを示すためテーマに関わらず紙色固定にして
-   いるが、この分岐では入力欄がキャンバスから切り離された画面下部固定のUI
-   部品になる（もはや紙の上ではない）ため、逆に下部操作パネル（.control-panel）
-   と同じ、テーマに追従するカード風の見た目に切り替えて「これはキャンバスの
-   一部ではない」ことを見た目からも伝える（ユーザー指示）。 */
+   canvasView.ts openTextEditor参照）専用の見た目。 */
 .text-editor-overlay--fixed-bottom {
   border: 1px solid var(--ink-12);
   border-radius: var(--radius-lg);
@@ -526,47 +379,7 @@ body {
 }
 
 .text-editor-overlay::placeholder {
-  color: oklch(22% 0.012 55 / 0.35);
-}
-
-/* --- 空のキャンバス（メモが1つも無いとき）に重ねる案内。「自由に書いてみる」と
-   「＋テンプレートを使用」の2つの選択肢を縦に並べる（ユーザー指示：テンプレートを
-   キャンバスを使い始める最初の選択肢へ格上げする）。以前はcanvasView.tsが
-   ctx.fillTextでcanvasに直接描いていたが、ボタンとして押せる・読み上げられる
-   必要があるため本物のDOMにした。位置はcanvasView.tsのsyncEmptyStatePosition()が
-   canvas要素の実際の位置＋フレーム中心からpxで設定する——CircularCanvasが
-   containerに.canvas-hostを付けてこの絶対配置の基準にする（キャンバスのタブ
-   切り替え時にパネルごとhiddenで消えてくれるよう、.text-editor-overlayのような
-   body直下のposition:fixedにはしていない）。 --- */
-.canvas-host {
-  position: relative;
-}
-
-.canvas-empty-state {
-  position: absolute;
-  z-index: 1; /* 罫線の紙の上、.icon-popover(5)・.text-editor-overlay(20)より下 */
-  transform: translate(-50%, -50%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.625rem;
-  text-align: center;
-  white-space: nowrap;
-  /* ボタン以外の場所（案内の文字・すき間）はそのままcanvasへのドラッグを通す。 */
-  pointer-events: none;
-}
-
-/* 空状態で最初に読ませたい案内文のため、視認性を上げて
-   旧HINT_TEXT（canvasにfillTextしていた頃）よりやや大きく・濃くしている。 */
-.canvas-empty-hint {
-  margin: 0;
-  font-size: var(--text-md);
-  color: var(--ink-45);
-  /* 文言の自動切り替え(canvasView.ts:fadeOutEmptyStateHint)用フェード。
-     durationは切り替えの向き（ゆっくり消える／すぐ現れる）でJS側が都度
-     style.transitionDurationとして設定するため、ここでは指定しない。 */
-  transition-property: opacity;
-  transition-timing-function: ease;
+  color: var(--ink-35);
 }
 
 /* --- .app-headerと同じ理由でposition:fixedの半透明+ぼかしの帯にし、画面の
@@ -593,10 +406,12 @@ body {
      発動してしまう）。 */
   touch-action: pan-x pan-y;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
+  justify-content: space-between;
   gap: var(--space-3);
   padding: 8px 16px calc(2rem + env(safe-area-inset-bottom, 0px));
+  pointer-events: none;
   /* .app-footer自体は背景を持たない——中身の2枚のカード（.panel-swatches／
      .control-panel）がそれぞれ不透明な背景（var(--paper-1)）を持っている
      ため、コンテナ側で重ねて背景を敷くと色浮きするだけで意味が無かった
@@ -627,23 +442,6 @@ body {
   pointer-events: none;
 }
 
-/* --- 道具バー（.control-panel）と、記録一覧画面を開く独立トリガー
-   （#record-grid-trigger-slot、.record-grid-trigger-card）を横に並べる行。
-   .app-footer自体はflex-direction:columnのため（色スワッチのカードが上に
-   縦に積まれる）、この2枚を横並びにするための専用のラッパー。gapで明確な
-   余白を空け、トリガー側は独自の背景・角丸・影を持つ別カードにすることで、
-   道具選択ピルとは視覚的にも完全に分離して見えるようにする（ユーザー指示：
-   ツールバーの一部に見えてしまっていたのを直したい）。 --- */
-.footer-tools-row {
-  display: flex;
-  /* 既定（stretch）にすることで、道具バー（.control-panel）とトリガーの
-     カード（.record-grid-trigger-card）の縦幅を揃える（ユーザー指摘：
-     縦幅が揃っていなかった）——align-items:centerだとカードは中身にフィット
-     する高さのまま並ぶだけで、道具バー側の実際の高さには追従しない。 */
-  align-items: stretch;
-  gap: var(--space-3);
-}
-
 /* --- 下部のツールバー。色スワッチ（.panel-swatches）とは別の、独立した
    浮いたカード（角丸・枠線・背景・影を自分自身で持つ）にする——一時期
    両者を1枚の連続パネルにまとめていたが、それぞれ独立した見た目に戻す
@@ -662,59 +460,81 @@ body {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--ink-12);
-  background: var(--paper-1);
-  box-shadow: var(--shadow-card);
+  border-radius: var(--radius-full);
+  border: none;
+  background: color-mix(in oklch, var(--paper-canvas) 84%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: none;
+  pointer-events: auto;
+}
+
+.control-panel[hidden] {
+  display: none !important;
+}
+
+.new-sheet-btn {
+  appearance: none;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 3.375rem;
+  padding: 0.5rem 1.375rem;
+  border-radius: var(--radius-full);
+  background: var(--ink-solid);
+  color: var(--paper-canvas);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: opacity var(--duration-fast) ease, transform var(--duration-fast) ease;
+}
+
+.new-sheet-btn:hover {
+  opacity: 0.86;
+}
+
+.new-sheet-btn:active {
+  transform: scale(0.98);
+}
+
+.new-sheet-btn[hidden] {
+  display: none !important;
 }
 
 /* --- インクの色スワッチ（toolbar.ts buildSwatch、#panel-swatch-slot）。
-   ツールバー（.control-panel）とは別の、独立した浮いたカードにする
-   （ユーザー指示）——見た目はツールバーの外枠（角丸・枠線・背景・影）と
-   揃え、中身だけカード枠を持たない軽いアイコン列（.panel-swatches-row）に
-   する。幅はツールバーに合わせて伸ばさず、中身にフィットさせて独立した
-   小さなカードに見えるようにする。
-   レイアウト上は常に.app-footerの中央（align-items:center）に置いたまま、
-   今選んでいる道具アイコンの真上へはtransform: translateX（toolbar.ts
-   syncSwatchPosition）で見た目の位置だけをずらす——ユーザー指示：道具を
-   切り替えるたびに、その道具アイコンの真上に追従させたい。transitionは
-   その移動を滑らかにするための演出（必須ではないが自然に見える、ユーザー
-   指示）。 --- */
+   ツールバー（.control-panel）とは別の、右下に配置する独立したカードにする。
+   色を使う道具（ペン・マーカー・テキスト）を選択した時だけアニメーション付きで現れ、
+   それ以外の時はふわっと消える。 --- */
 .panel-swatches {
   display: flex;
   align-items: center;
   justify-content: center;
   width: fit-content;
-  padding: 0.625rem var(--space-4);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--ink-12);
-  background: var(--paper-1);
-  box-shadow: var(--shadow-card);
-  transition: transform var(--duration-base) ease;
+  min-height: 3.375rem;
+  margin-left: auto;
+  padding: 0.5rem 0.875rem;
+  border-radius: var(--radius-full);
+  border: none;
+  background: color-mix(in oklch, var(--paper-canvas) 84%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: none;
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity 180ms ease;
+}
+
+.panel-swatches[data-visible="false"] {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .panel-swatches-row {
   gap: 0.5rem;
-}
-
-/* --- 追従カード内の消しゴムサイズボタン（toolbar.ts buildEraserSizeSteps、
-   .toolbar-pill/.toolbar-btnを流用）は、道具バー本体の.toolbar-btn（2.375rem）
-   ではなく、同じカードに並ぶ色スワッチ（.toolbar-swatch）と大きさを揃える
-   （ユーザー指示：消しゴムのサイズとカラーバーのサイズを合わせたい——カラーの
-   方に合わせる）。.panel-swatches配下だけに絞ることで、道具バー本体の
-   アイコンサイズには影響しない。 --- */
-.panel-swatches .toolbar-btn {
-  width: 2rem;
-  height: 2rem;
-}
-
-.panel-swatches .toolbar-pill {
-  gap: 0.5rem;
-}
-
-.panel-swatches .toolbar-btn svg {
-  width: 1rem;
-  height: 1rem;
 }
 
 /* --- 記録一覧画面（recordGrid.ts）への唯一の入口の器
@@ -733,11 +553,28 @@ body {
   align-items: center;
   justify-content: center;
   flex: none;
-  padding: 0.4375rem;
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--ink-12);
-  background: var(--paper-1);
-  box-shadow: var(--shadow-card);
+  padding: 0.375rem 0.5rem;
+  border-radius: var(--radius-full);
+  border: none;
+  background: color-mix(in oklch, var(--paper-canvas) 84%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: none;
+  pointer-events: auto;
+}
+
+/* 右上のピル（.top-right-card）は画面上端にあるため、
+   ホバー案内（.tool-tooltip）はボタンの真下（下向き）に開く。 */
+.top-right-card .tool-tooltip {
+  top: 100%;
+  bottom: auto;
+  margin-top: 0.5rem;
+  margin-bottom: 0;
+  transform: translateX(-50%) translateY(-6px);
+}
+
+.top-right-card .tool-tooltip.is-visible {
+  transform: translateX(-50%) translateY(0);
 }
 
 .record-grid-trigger-row {
@@ -748,85 +585,6 @@ body {
 
 .record-grid-trigger-btn {
   flex: none;
-}
-
-/* サムネイル（canvas）だけを差し替えるための入れ物（toolbar.ts
-   refreshRecordGridTrigger参照）。display:contentsで自分自身は箱を持たず、
-   .record-grid-trigger-btnのflex中央寄せに直接canvasが乗っているのと
-   同じ見た目にする。 */
-.record-grid-trigger-thumb-slot {
-  display: contents;
-}
-
-.record-grid-trigger-thumb {
-  display: block;
-  border-radius: 6px;
-}
-
-/* 中央バッジの両脇の◀▶（Issue #3）。◀（前日へ）は今日を見ている間も含め
-   常時表示、▶（次の日へ）は今日を見ている間（toolbar.ts
-   refreshRecordGridTrigger、data-visible属性）だけ現れなくなる——ユーザー
-   指示：進むボタンは今日を見ている時は無くていい。.history-strip-btn
-   （旧ヘッダー版、撤去済み）と同じ「独立した小さなアイコンとして置かれて
-   いるだけ」の見た目——丸い当たり判定やホバー時の背景円は持たせない。 */
-.record-grid-trigger-step {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 1.375rem;
-  height: 2.375rem;
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--ink-70);
-  font-size: var(--text-sm);
-  line-height: 1;
-  cursor: pointer;
-  transition: color var(--duration-fast) ease;
-  /* ホバー案内(.tool-tooltip、attachToolTooltip)をこのボタン基準で重ねて
-     表示するため（.toolbar-btnの同じ指定と同じ理由）。 */
-  position: relative;
-}
-
-.record-grid-trigger-step:hover {
-  color: var(--ink-solid);
-}
-
-/* ▶（.record-grid-trigger-step--forward）だけ、現れる/消えるをパッと切り
-   替えず幅・不透明度をなめらかにアニメーションさせる（ユーザー指示：出入り
-   が唐突すぎる）。hidden属性ではなくdata-visible（toolbar.ts
-   refreshRecordGridTrigger）でこのクラス内だけの見た目を出し分ける——
-   hidden（display:noneの瞬間切り替え）だとtransitionが効かないため。
-   常にDOM上には存在させたまま、消えている間はwidth:0で場所を取らせず、
-   pointer-events:noneとtabindex（toolbar.ts）でクリック・キーボード操作
-   からも外す。overflow:hiddenはボタン自身ではなく内側の.record-grid-
-   trigger-step-glyphに付ける——ボタン自身にはホバー案内(.tool-tooltip、
-   attachToolTooltip)がbottom:100%で乗っており、ボタン自身をoverflow:hidden
-   にすると幅が0へ潰れていく間ツールチップごと切り取られてしまうため。 */
-.record-grid-trigger-step--forward {
-  width: 1.375rem;
-  opacity: 1;
-  transition: width var(--duration-base) ease, opacity var(--duration-base) ease;
-}
-
-.record-grid-trigger-step--forward[data-visible="false"] {
-  width: 0;
-  opacity: 0;
-  pointer-events: none;
-}
-
-/* ▶の文字自体（幅が0へ潰れる間、ボタンの外へはみ出して見えないよう
-   ここでだけoverflow:hiddenを掛ける——上記.record-grid-trigger-step--forward
-   コメント参照）。ボタン本体と同じ大きさぴったりに重ね、中央寄せだけ
-   ここで担う。 */
-.record-grid-trigger-step-glyph {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
 }
 
 /* --- 道具バー：道具アイコンを1列（.toolbar-pill）に、すべて同じ大きさ
@@ -841,9 +599,7 @@ body {
   justify-content: center;
   flex-wrap: nowrap;
   gap: var(--space-5);
-  /* 縦方向のpaddingをvar(--space-2)(8px)から広げ、タップ領域に余裕を持たせる
-     （ユーザー指示）。横方向は据え置き。 */
-  padding: 1rem var(--space-4);
+  padding: 0.5rem 0.75rem;
 }
 
 .toolbar-tools {
@@ -855,142 +611,7 @@ body {
 .toolbar-pill {
   display: flex;
   align-items: center;
-  gap: 0.375rem;
-}
-
-/* --- 設定メニューのテーマ選択行だけ、間隔は詰めてボタン自体を大きくする
-   （ユーザー指示：間隔を小さくする代わりに選択するボタンを大きく）。
-   ツールバー下部の色スワッチ（.toolbar-swatch、道具として頻繁に押す小さな
-   ボタン）とは用途が違い、テーマは数秒に一度選ぶだけの大きめのタップ対象で
-   よいため、この行の中でだけサイズを上書きする。 --- */
-.theme-swatch-row {
-  gap: var(--space-2);
-}
-
-.theme-swatch-row .toolbar-swatch {
-  width: 2.5rem;
-  height: 2.5rem;
-}
-
-/* --- スマホ幅の下部バー。消しゴムの大きさは道具バーではなく追従カード
-   （#panel-swatch-slot、toolbar.ts syncFollowerCard参照）に表示するため、
-   以前あった「ハンドルをタップ/ドラッグして手動で一行展開する」仕組み
-   （旧controlPanelDrawer.ts）は不要になった——表示・非表示は道具の選択
-   そのものに連動して自動で決まる。道具バー自体は常に.toolbar-tools（道具
-   アイコン）だけの1行のまま。
-   ツールバーのカード（.control-panel）は、デスクトップでは中身にフィット
-   する幅にしているが、モバイルではタップ領域確保を優先し、これまで通り
-   画面幅いっぱいに近い帯に戻す（ユーザー指示）——色スワッチのカード
-   （.panel-swatches）はモバイルでも中身にフィットしたコンパクトな幅の
-   ままで構わない。
-   余白・間隔は、機種ごとの画面幅の違いに応じて実際に伸び縮みするよう、
-   固定pxではなくclamp(最小, 画面幅に連動する値, 最大)で指定する
-   （ユーザー指摘：pxで揃えるのは可変でない）。 --- */
-@media (max-width: 480px) {
-  /* record-grid-trigger-card分の幅を差し引いた残りを道具バーに回す——
-     .control-panel自体をwidth:100%のままにすると.footer-tools-row（新設）の
-     幅からトリガーカード分がはみ出してしまうため、flex:1 1 autoで
-     「残りいっぱい」に置き換える（ユーザー指示：トリガーは道具バーとは
-     別カードのまま道具バーの右に並べたい）。 */
-  .footer-tools-row {
-    width: 100%;
-  }
-
-  .control-panel {
-    flex: 1 1 auto;
-    min-width: 0;
-    max-width: none;
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    gap: clamp(6px, 2.5vw, 10px);
-  }
-
-  .control-panel-body {
-    flex: 1 1 auto;
-    min-width: 0;
-  }
-
-  /* ツールバーのカード幅いっぱいに広げないと、justify-content:centerで
-     道具アイコンが幅広の帯の中央に来ない（左寄りに詰まって見える）ため。 */
-  .toolbar {
-    width: 100%;
-  }
-
-  .toolbar-tools {
-    justify-content: center;
-    gap: clamp(8px, 3vw, 12px);
-  }
-
-  /* ツールバーは縦方向の余白をタップしやすいよう広めに取る（ユーザー指示）。
-     色スワッチのカードは元のまま据え置き——2枚のカードの高さが揃わなく
-     なるが、タップ領域拡大の対象はツールバーだけという指示のため。 */
-  .toolbar {
-    padding: clamp(10px, 3vw, 14px) clamp(8px, 3vw, 12px);
-  }
-
-  .panel-swatches {
-    padding: clamp(4px, 1.5vw, 6px) clamp(8px, 3vw, 12px);
-  }
-
-  /* ヘッダー・フッターはposition:fixedの固定オーバーレイで、自前でpadding・
-     セーフエリアを持つため、#appはpaddingを持たない（以前は上下左右の
-     paddingもここで詰めていたが、その役割は.app-header/.app-footer自身に
-     移った——ユーザー指示：左右の余白も詰めたい）。折り返した分だけ下部バーの
-     縦幅が増えるため、.app-footer側の余白も詰めて、その分をキャンバス
-     （.app-main、flex:1で残り高さを取る）に回す（ユーザー報告：キャンバスが
-     デフォルトで小さい）。 */
-  #app {
-    padding: 0;
-    gap: clamp(6px, 2vw, 8px);
-  }
-
-  .app-header {
-    padding: clamp(8px, 2.5vw, 10px);
-    padding-top: calc(clamp(8px, 2.5vw, 10px) + env(safe-area-inset-top, 0px));
-  }
-
-  .app-footer {
-    padding: clamp(4px, 1.5vw, 6px) clamp(8px, 2.5vw, 10px)
-      calc(clamp(16px, 4.5vw, 26px) + env(safe-area-inset-bottom, 0px));
-  }
-}
-
-/* --- 横持ちスマホ向けの圧縮。上のmax-width:480pxは幅が乏しい縦持ち端末向けで
-   ブロックが横に並びきらないための再配置だが、横持ちスマホは逆に幅は
-   十分ある一方で高さが乏しい（100dvh基準の円がヘッダー・フッターの固定高さに
-   圧迫される）。ブロックの横並び自体は幅的に成立するため再配置はせず、
-   ヘッダー・フッターそれぞれの縦方向のpadding／道具バー・色スワッチ段の
-   padding／道具ボタンのサイズだけを切り詰め、浮いた分をキャンバスの円（#canvas-panel、
-   flex:1で残り高さを取る）に還元する。max-height:500pxはiPad横持ち(768px)や
-   デスクトップより十分低く、横持ちスマホ（実機はおよそ375〜430px）だけに
-   絞り込むための閾値。 --- */
-@media (orientation: landscape) and (max-height: 500px) {
-  .app-header {
-    padding: var(--space-1) var(--space-3);
-    padding-top: calc(4px + env(safe-area-inset-top, 0px));
-  }
-
-  .toolbar,
-  .panel-swatches,
-  .record-grid-trigger-card {
-    padding: 0.25rem var(--space-3);
-  }
-
-  .toolbar-btn {
-    width: 2rem;
-    height: 2rem;
-  }
-
-  .toolbar-btn svg {
-    width: 1rem;
-    height: 1rem;
-  }
-
-  .app-footer {
-    padding: 0.25rem var(--space-3)
-      calc(0.25rem + env(safe-area-inset-bottom, 0px));
-  }
+  gap: 0.25rem;
 }
 
 /* --- キャンバス⇔振り返り⇔共有の画面切り替え時、下部バーの中身（道具バー／
@@ -1059,18 +680,26 @@ body {
   color: var(--ink-solid);
   cursor: pointer;
   transition: background-color 0.15s ease, opacity 0.15s ease;
-  opacity: 0.55;
+  opacity: 0.4;
   /* ホバー案内(.tool-tooltip)をこのボタン基準で重ねて表示するため（ユーザー指示）。 */
   position: relative;
 }
 
+.toolbar-btn:hover {
+  opacity: 0.75;
+}
+
 .toolbar-btn svg {
-  width: 1.25rem;
-  height: 1.25rem;
+  width: 1.625rem;
+  height: 1.625rem;
+}
+
+.toolbar-btn-icon-slot {
+  display: contents;
 }
 
 .toolbar-btn[data-active="true"] {
-  background: var(--paper-2);
+  background: var(--ink-08);
   opacity: 1;
 }
 
@@ -1129,6 +758,7 @@ body {
   cursor: pointer;
   padding: 0;
   overflow: hidden;
+  transition: background-color 240ms ease, box-shadow 180ms ease;
 }
 
 /* 今選んでいる色のスワッチだけ、外側にもう1本濃いリングを足して選択中と分かるようにする。 */
@@ -1141,7 +771,6 @@ body {
    触っても意味が無いことを示す——押せなくした上で薄くする。 */
 .toolbar-swatch:disabled {
   cursor: default;
-  opacity: 0.4;
 }
 
 /* 4つ目（好きな色）のスワッチ。まだ一度も選んでいない間は虹色のグラデーションで
@@ -1171,8 +800,15 @@ body {
 .toolbar-custom-color-popover {
   min-width: 10rem;
   padding: 0.625rem 0.875rem;
+  left: auto;
+  right: 0;
+  transform: translateY(6px);
   background: color-mix(in oklch, var(--paper-1) 85%, transparent);
   backdrop-filter: blur(6px);
+}
+
+.toolbar-custom-color-popover.is-visible {
+  transform: translateY(0);
 }
 
 /* --- テーマの「好きな色を選ぶ」カラーパレット（settingsMenu.ts、issue #138）。
@@ -1241,750 +877,97 @@ body {
   box-shadow: 0 1px 3px var(--ink-20);
 }
 
-/* --- ポップオーバーの中を「招待リンク／ルーム一覧／作成」の3区画に分ける
-   仕切り。以前は全部が同じ余白・同じ背景で単純に縦に並ぶだけで、要素の
-   まとまりが見た目に伝わらなかった（ユーザー指摘：色々な要素が区切られる
-   ことなく1枚に同居している）。最初の区画は仕切り線を引かない。 --- */
-.shared-menu-section {
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--ink-08);
+/* --- 小さい画面（スマホ等）：下部中央にツールバー、左上にカラーバーを配置 --- */
+@media (max-width: 600px) {
+  .control-panel {
+    width: fit-content;
+    min-width: 0;
+    max-width: 100%;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: clamp(6px, 2.5vw, 10px);
+  }
+
+  .control-panel-body {
+    min-width: 0;
+  }
+
+  .toolbar {
+    width: auto;
+    padding: clamp(8px, 2.5vw, 12px) clamp(10px, 3vw, 14px);
+  }
+
+  .toolbar-tools {
+    justify-content: center;
+    gap: clamp(8px, 3vw, 12px);
+  }
+
+  .panel-swatches {
+    position: fixed;
+    top: calc(clamp(8px, 2.5vw, 10px) + env(safe-area-inset-top, 0px));
+    left: clamp(8px, 2.5vw, 10px);
+    z-index: 12;
+    margin-left: 0;
+    min-height: 3.125rem;
+    padding: 0.375rem 0.75rem;
+  }
+
+  .toolbar-custom-color-popover {
+    top: 100%;
+    bottom: auto;
+    margin-top: 0.625rem;
+    margin-bottom: 0;
+    transform: translateY(-6px);
+  }
+
+  .toolbar-custom-color-popover.is-visible {
+    transform: translateY(0);
+  }
+
+  #app {
+    padding: 0;
+    gap: clamp(6px, 2vw, 8px);
+  }
+
+  .app-header {
+    padding: clamp(8px, 2.5vw, 10px);
+    padding-top: calc(clamp(8px, 2.5vw, 10px) + env(safe-area-inset-top, 0px));
+  }
+
+  .app-footer {
+    justify-content: center;
+    flex-wrap: nowrap;
+    padding: clamp(4px, 1.5vw, 6px) clamp(8px, 2.5vw, 10px)
+      calc(clamp(16px, 4.5vw, 26px) + env(safe-area-inset-bottom, 0px));
+  }
 }
 
-.shared-menu-section:first-child {
-  padding-top: 0;
-  border-top: none;
-}
+@media (orientation: landscape) and (max-height: 500px) {
+  .app-header {
+    padding: var(--space-1) var(--space-3);
+    padding-top: calc(4px + env(safe-area-inset-top, 0px));
+  }
 
-/* --- 各区画の小見出し（設定メニュー内の各セクション見出しなど）。 --- */
-.shared-section-label {
-  font-size: var(--text-2xs);
-  font-weight: 500;
-  color: var(--ink-45);
-  margin-bottom: 0.375rem;
-}
+  .toolbar,
+  .panel-swatches,
+  .record-grid-trigger-card {
+    padding: 0.25rem var(--space-3);
+  }
 
-.pill-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
-  pointer-events: none;
-}
-
-/* --- 文字を主体にしたボタンの共通の見た目。アイコンのみの.toolbar-btnと違い、
-   文字だけの装飾なしボタン（旧.text-link）だと押せることが伝わりにくかった
-   （ユーザー指摘）ため、背景色つきのピル型にする。.icon-popover（背景
-   var(--paper-1)）の中に置かれることが多いため、それより一段暗いトーンに
-   して溶けないようにする（.toolbar-btnのdata-active時が.control-panelの
-   上で使っているのと同じ組み合わせ）。 --- */
-.pill-btn {
-  appearance: none;
-  border: none;
-  background: var(--paper-2);
-  font: inherit;
-  font-size: var(--text-xs);
-  font-weight: 500;
-  color: var(--ink-85);
-  white-space: nowrap;
-  padding: 0.3125rem var(--space-3);
-  border-radius: var(--radius-full);
-  cursor: pointer;
-  transition: background-color 0.15s ease;
-}
-
-.pill-btn:hover {
-  background: var(--paper-3);
-}
-
-
-/* --- アプリのメインメニュー(settingsMenu.ts)のトリガーボタン。画面左上
-   （ヘッダー、issue #161）に固定表示する。透明な帯である.app-header
-   （下のキャンバスの地色がそのまま透ける）の上に置くため、既定では
-   背景を持たせず地色に同化させる（ユーザー指示：白い丸だと浮いて見える）。
-   ホバー・展開中だけ.paper系の背景を出し、操作可能・操作中であることが
-   分かるようにする。文字を持たない（ユーザー指示）ため、他のpill-btnと
-   違いwidth/heightを固定してアイコンボタンにする。正円
-   （border-radius: var(--radius-full)、width/heightが等しいのでちょうど
-   円になる）にする。 --- */
-.settings-trigger {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.25rem;
-  height: 2.25rem;
-  padding: 0;
-  border-radius: var(--radius-full);
-  background: transparent;
-}
-
-.settings-trigger svg {
-  width: 1.375rem;
-  height: 1.375rem;
-  flex: 0 0 auto;
-}
-
-.settings-trigger:hover {
-  background: var(--paper-2-hover);
-}
-
-.settings-trigger[data-active="true"] {
-  background: var(--paper-3);
-}
-
-/* --- 設定メニュー内の「PNG」「TXT」書き出しボタンを1行に並べる（ユーザー
-   指示）。均等に幅を分け、テーマ行・使い方ボタンと同じ左右の余白に揃える。 --- */
-.export-row {
-  display: flex;
-  gap: var(--space-2);
-}
-
-.export-row-btn {
-  flex: 1 1 0;
-  text-align: center;
-}
-
-/* --- 失敗時のエラーだけをここに出す。空文字の間は<p>の既定marginごと消し、
-   行として場所を取らない。 --- */
-.export-status {
-  margin: var(--space-1) 0.125rem 0;
-  max-width: 12.5rem;
-  font-size: var(--text-2xs);
-  color: var(--ink-50);
-  white-space: normal;
-}
-
-.export-status:empty {
-  display: none;
-}
-
-/* --- 設定ボタンは画面左上（ヘッダー）に固定表示されるため(issue #161)、他の
-   .icon-popover（トリガーを中心に上向きで開く既定）と違い、トリガーの左端に
-   揃えて下向きに開く——中央寄せ・上向きのままだと画面左端からはみ出す・
-   トリガーの上（ヘッダーの外）に開いてしまう。
-   区画数が増えて.shared-menu-sectionの仕切り線(border-top)が煩雑になった
-   （ユーザー指示：区切り線をなくしたい）ため、このポップオーバー内に限り
-   線だけを打ち消す——余白(padding-top)は区画の区別として残す。min-widthは
-   他のメニューと同じ260pxに揃える（ユーザー指摘：各メニューのサイズが
-   まばら）。 --- */
-.settings-popover {
-  min-width: 16.25rem;
-  padding: 0.875rem var(--space-4);
-  left: 0;
-  right: auto;
-  top: 100%;
-  bottom: auto;
-  margin-top: 0.625rem;
-  margin-bottom: 0;
-  transform: translateY(-6px);
-  /* モバイル幅だと画面のほぼ全体をこのメニューが覆い、下のキャンバスが
-     完全に隠れてしまう（ユーザー指摘）ため、他の.icon-popover系と違い
-     背景を少し透かす——下の絵がうっすら透けることで、メニューを開いた
-     ままでもキャンバス上にいる感覚を保つ（デザイン上の狙い、ユーザー指示）。 */
-  background: color-mix(in oklch, var(--paper-1) 85%, transparent);
-  backdrop-filter: blur(6px);
-}
-
-.settings-popover .shared-menu-section {
-  border-top: none;
-}
-
-/* --- 「使い方を見る」ボタンを、上のテーマ行と左右の余白が揃うまで幅いっぱいに
-   広げる（ユーザー指示：右にもっと長く）。 --- */
-.settings-usage-btn {
-  display: block;
-  width: 100%;
-  text-align: center;
-}
-
-.settings-popover.is-visible {
-  transform: translateY(0);
-}
-
-/* --- ツールバー直上の情報行（#canvas-info-row、main.ts）。残り時間ピル等を
-   中央寄せで横並びに置く。
-   親（#canvas-panel、position:relative）の下端にposition:absoluteで
-   重ねる——flexの並びのままだと、この行の分だけ実際のキャンバス要素
-   （#canvas-wrap）が画面の真の下端まで届かず、その隙間からbodyの背景色が
-   透けて見える不具合があった（ユーザー指摘：ツールバーは半透明で
-   ブロックの間に隙間があるため、その隙間から色が浮いて見えていた）。
-   中身が無い間（ピル非表示時）は
-   キャンバスへのタップ・描画を妨げないよう、この行自体はpointer-events:noneに
-   し、実際に見えているボタン・ピル（直接の子要素）にだけpointer-events:auto
-   で戻す。
-   min-heightは中身の見た目上の高さに固定しておく——中身（「+ルームを作成」
-   ⇔選択中のルームID、ピルの表示/非表示）が変わってもこの行の高さ自体は
-   変わらないようにするため（以前はこれが共有キャンバスの実際の高さの変化＝
-   フレームの太さの変化に繋がっていたが、position:absolute化した今も、
-   見た目の高さが変わらない方が望ましい動作のため踏襲する）。 --- */
-.info-row {
-  position: absolute;
-  left: 0;
-  right: 0;
-  /* .app-footer（position:fixed）の裏に隠れないよう、その高さぶん＋見た目の
-     隙間(8px)だけ上げる（ユーザー指摘：ツールバー直上に見えるはずがbottom:0だと
-     ツールバーの裏＝画面の真下に来てしまい隠れていた）。以前はフッターの高さが
-     常に一定という前提で決め打ちの値(108px)を使っていたが、モバイル幅の
-     ハンドル開閉でフッターの高さ自体が変わるようになった（.control-panel-body
-     参照）ため、実測値（--app-footer-height、main.tsがResizeObserverで追従）を
-     参照する形にした——安全側のフォールバック値のみ決め打ちで残す。
-     --app-footer-height自体に.app-footerのpadding（セーフエリア込み）が
-     反映済みのため、ここでenv(safe-area-inset-bottom)は重ねて足さない。 */
-  bottom: calc(var(--app-footer-height, 100px) + 8px);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 0.625rem;
-  min-height: 2.125rem;
-  pointer-events: none;
-}
-
-.info-row > * {
-  pointer-events: auto;
-}
-
-/* --- 使い方ページ（usageGuide.ts）。序・一・二・三・四・結の一続きの読み物。 --- */
-.usage-guide {
-  position: fixed;
-  inset: 0;
-  z-index: 41;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-6) var(--space-4);
-  background: color-mix(in oklch, var(--paper-2) 86%, transparent);
-  overflow-y: auto;
-}
-
-.usage-guide-sheet {
-  position: relative;
-  width: min(42.5rem, 100%);
-  max-height: calc(100dvh - 48px);
-  overflow-y: auto;
-  /* シート全体の余白をできるだけ削る（ユーザー指示）——四角の大きさ
-     （.usage-guide-page参照）自体はそのままに、外周のパディングだけ詰める。 */
-  padding: var(--space-4) var(--space-5) var(--space-4);
-  border-radius: 24px;
-  border: 1px solid var(--ink-12);
-  background: var(--paper-1);
-  box-shadow: 0 2px 6px var(--ink-08), 0 18px 48px var(--ink-12);
-  transform: translateY(8px) scale(0.985);
-  transition: transform var(--duration-base) ease;
-  outline: none;
-}
-
-.usage-guide.is-visible .usage-guide-sheet {
-  transform: none;
-}
-
-/* --- 序（読み物の画面）の間だけ、背景（.usage-guide-sheet）の透過度を
-   上げ、設定メニュー（.settings-popover）と同じすりガラスにする（ユーザー
-   指示）。「練」は実際にペンで書く手順があり、下のキャンバスが透けると
-   紛らわしいため対象外（usageGuide.tsのsyncSheetGlass参照）。幅・高さは
-   他の画面（練）と統一するため上書きしない（ユーザー指示：四角の大きさを
-   統一したい）。 --- */
-.usage-guide-sheet--glass {
-  background: color-mix(in oklch, var(--paper-1) 55%, transparent);
-  backdrop-filter: blur(6px);
-}
-
-/* 以前は本文をスクロールさせていたため、✕ボタンを含む見出しを
-   position:stickyで上部に固定していた（負のmarginでsheetの上端パディングを
-   打ち消し、同じ値をpaddingとして付け直すトリック）。今はページ送り
-   （.usage-guide-pages参照）でスクロール自体が
-   発生しないため、このトリックは不要——それどころか、sticky要素の隣接
-   マージンの扱いが通常のブロックと微妙に異なり、直後の.usage-guide-pagesとの
-   間に意図しない負のすき間（マーカーがheadに数px重なる）ができてしまって
-   いた（ユーザー報告）。普通のブロック要素に戻すだけで両方解決する。 */
-.usage-guide-head {
-  display: flex;
-  align-items: center;
-}
-
-.usage-guide-close {
-  appearance: none;
-  border: none;
-  background: none;
-  margin-left: auto;
-  flex: 0 0 auto;
-  width: 2.5rem;
-  height: 2.5rem;
-  border-radius: var(--radius-full);
-  font-size: 1.5rem;
-  line-height: 1;
-  color: var(--ink-60);
-  cursor: pointer;
-  transition: background-color var(--duration-fast) ease;
-}
-
-.usage-guide-close:hover {
-  background: var(--paper-2);
-}
-
-/* --- 序・練のページ送り。以前は1つの長いスクロールページに3つとも
-   並べていたが、スクロール無しで1画面ずつ進めたいという指示のため、
-   .usage-guide-pagesの直接の子である.usage-guide-pageのうち1つだけを
-   hidden属性で出し、他は完全に取り除く（display:noneではなく[hidden]の
-   ため、レイアウトにも一切残らない）——usageGuide.tsのshowPage参照。 --- */
-.usage-guide-pages {
-  margin-top: var(--space-2);
-}
-
-/* heightは「練」の中で一番背が高くなる瞬間（振り返りスライダーが
-   出た後の「振り返る」「done」手順）の実測ぶんの高さに、フォントの描画差
-   ぶんの余裕を足した値。これを全ページ・全手順共通の下限に揃え、それより
-   低い序・練の他の手順ではjustify-content:centerで余った縦のすき間に
-   コンテンツを中央寄せすることで、ページや手順を切り替えるたびにモーダル
-   自体の高さが伸び縮みしないようにしている（ユーザー指示：ウィンドウの
-   サイズを変えないでほしい）。書く・待つ・選ぶといった練習パート（issue #58）
-   への刷新でページ内の要素構成が変わったため、この下限も実測し直してある
-   ——以前は「みる」手順（スライダーが出る前）だけを基準に600px、その後
-   スライダー追加で700pxまで引き上げていたが、今の練習パートはより
-   円の拡大後も含めて620pxに収まる。高さを固定することで、手順ごとの文章量や
-   スライダーの有無によってモーダル全体が微妙に伸び縮みするのを防ぐ。
-   min()の右側（calc(100dvh - 200px)）は、床面自体がヘッダー等を含めた
-   モーダル全体をmax-height（.usage-guide-sheet、100dvh-48px）より高くして
-   しまい、結果としてスクロールが必要になる（ユーザー報告：ウィンドウの
-   高さによってはスクロールが必要になる）のを防ぐための安全弁——200pxは
-   ヘッダー・.usage-guide-pagesの余白・.usage-guide-sheetの上下パディングの
-   合計ぶんの実測（136px）に少し余裕を足した見積もり。固定pxのままだと
-   画面の低い端末でシート内スクロールが発生してしまうため、min()でdvh基準の
-   上限を足し、画面が低い時はそちらに縮めて必ず収まるようにしている。 */
-.usage-guide-page {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
-  text-align: center;
-  height: min(620px, calc(100dvh - 200px));
-  min-height: 0;
-  padding: var(--space-1) 0;
-  box-sizing: border-box;
-}
-
-/* --- 序・結（読み物の2画面）は、練の既定（620px固定）と違い中身の高さに
-   そのまま合わせる（ユーザー指示：縦の余白を無くしたい）。固定の高さの中で
-   justify-content:centerしていたため中身の少なさぶん上下が空いて見えていた
-   ——「練」は手順ごとに高さが変わらないことが重要（.usage-guide-page参照）
-   だが、序・結はページ送りで一度きりしか表示されない読み物のため、
-   高さが中身なりに変わっても支障ない。 --- */
-.usage-guide-page--compact {
-  height: auto;
-}
-
-/* 練習ページを中央寄せすると、説明文の行数やスライダーの出現によって内容全体の
-   高さが変わるたび、見出しと円まで上下に動いてしまう。練習だけ上端を基準に置き、
-   状態変化は円より下の領域で吸収する。 */
-.usage-guide-page--practice {
-  justify-content: flex-start;
-  padding-top: 0;
-}
-
-.usage-guide-page-content {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-1);
-}
-
-/* マーカー（丸バッジ）とタイトルの横並び。以前は縦積みだったが、その高さぶん
-   ウィンドウが少し低いだけでモーダル全体がスクロールを要するようになって
-   いた（ユーザー報告）ため、1行にまとめて高さを削っている。 */
-.usage-guide-page-heading {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.usage-guide-marker {
-  width: 2.5rem;
-  height: 2.5rem;
-  border-radius: var(--radius-full);
-  background: var(--paper-1);
-  border: 1px solid var(--ink-20);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: "Klee One", "Noto Sans JP", sans-serif;
-  font-size: var(--text-lg);
-  color: var(--accent-red);
-}
-
-.usage-guide-canvas {
-  width: 7rem;
-  height: 7rem;
-  display: block;
-}
-
-.usage-guide-stage-title {
-  font-family: "Klee One", "Noto Sans JP", sans-serif;
-  font-size: var(--text-lg);
-  font-weight: 600;
-  margin: 0;
-}
-
-.usage-guide-stage-body {
-  font-size: var(--text-sm);
-  line-height: 1.85;
-  max-width: 46ch;
-  margin: 0;
-  color: var(--ink-85);
-}
-
-.usage-guide-page-actions {
-  display: flex;
-  justify-content: center;
-  /* 序の初回起動時だけ「使い方を見る」「早く使いたい」の2つが並ぶ
-     （usageGuide.ts参照）ため、間隔をあけておく。 */
-  gap: var(--space-2);
-}
-
-@media (max-width: 560px) {
-  .usage-guide-marker {
+  .toolbar-btn {
     width: 2rem;
     height: 2rem;
-    font-size: var(--text-md);
-  }
-  .usage-guide-canvas {
-    width: 6rem;
-    height: 6rem;
-  }
-}
-
-/* --- 記録一覧画面（recordGrid.ts）。書き込みのあった日だけを新しい日順の
-   グリッドで見せる（ユーザー指示：円相の「一覧・検索UIを持たない」原則の
-   明示的な例外）。見た目はiOS/Androidのアプリ切り替え画面（タブオーバー
-   ビュー）を参考にしている（ユーザー指示）：以前あった共有のカード枠
-   （背景・境界線・タイトルバー・×ボタン）を一切持たず、9マスそれぞれの紙
-   （.record-grid-thumb）が個別に影（--canvas-shadow）を落として浮いている
-   だけの見た目にした。閉じる手段も専用の×ボタンではなく、開くのに使った
-   トリガーボタンの再クリック、またはマス以外の場所のタップ（main.ts
-   toggleRecordGridView、recordGrid.tsのpointerdownハンドラ）——背景に
-   隠すものが無いため暗いオーバーレイも無く、表示・非表示自体は
-   .history-viewと同じ瞬時のhidden切り替え（main.ts setActiveView）。 --- */
-
-/* --- グリッド本体。3×3=9マス固定、デスクトップ・モバイル共通のレイアウト
-   （ユーザー指示：2×2のモバイル分岐は廃止）——常に「日・月・火・水・木・金・
-   土＋前の週へ＋次の週へ」の9項目で埋まる（recordGrid.ts renderWeek）。
-   grid-template-columns/gapはCSSで固定値を持たず、recordGrid.ts
-   syncGridSizeが本体キャンバスの実際の見た目のサイズから逆算した値を毎回
-   インラインstyleで設定する——デスクトップ・モバイルの2値をブレークポイントで
-   切り替える方式（以前の実装）だと、モバイルでは本体キャンバスより明らかに
-   小さいまま固定されてしまっていた（ユーザー報告：スマホ版が特に小さい）。
-   日付ラベルはcanvas上に直接描く（recordGrid.ts drawDateCaption）ため、
-   セルの外形はサムネイルの正方形＋均一paddingだけで決まり、9マスすべてが
-   同じ正方形になる（ユーザー指示）。共有のカード枠を持たないため、余白は
-   gapだけで決まる（以前あったカード自体のpadding・margin-topは廃止）。 --- */
-.record-grid-cells {
-  display: grid;
-  outline: none;
-}
-
-/* --- 1マス。グリッドは索引役に徹する（ユーザー指示）ため、タップして
-   日付めくり画面のその日を開くだけの単純なボタンにする——プレビューや
-   ドラッグ等の操作はここでは一切持たせない。中身はサムネイル1枚だけ
-   （日付ラベルはcanvas上に直接描く）にすることで、9マス全てが完全に
-   同じ正方形サイズになる（ユーザー指示）。 --- */
-.record-grid-cell {
-  appearance: none;
-  border: none;
-  background: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-2);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: background-color var(--duration-fast) ease;
-}
-
-.record-grid-cell:hover {
-  background: var(--paper-2);
-}
-
-/* --- ダミーセル（recordGrid.ts buildWeekdayDummyCell）：実データの無い曜日を
-   埋める、中身の無いセル。クリック対象ではないため<div>で（タブ移動・
-   ホバー反応も持たせない）、見た目は本体キャンバスと同じ罫線入りの紙
-   （canvas側でdrawRuledPaper＋曜日バッジを描く）にする（ユーザー指示）。 --- */
-.record-grid-cell--dummy {
-  cursor: default;
-}
-
-.record-grid-cell--dummy:hover {
-  background: none;
-}
-
-/* 紙の輪郭に沿って浮かせる影は、本体キャンバス・過去めくり画面
-   （.archive-canvas）と同じ--canvas-shadowに揃える。実セル・ダミーセルとも
-   罫線入りの紙になったため、同じ影でよい。 */
-.record-grid-thumb {
-  display: block;
-  filter: var(--canvas-shadow);
-}
-
-/* --- 週送りセル（recordGrid.ts buildNavCell）。日〜土の7マスと同じグリッドの
-   8・9番目のマスとして埋め込む——紙質の実セル・ダミーセルとは見た目で明確に
-   区別するため、黒背景＋白い矢印グリフにする（ユーザー指示）。ボタン自体
-   （.record-grid-cell）はグリッドのstretchで同じ行の紙セルと同じ外形サイズ
-   になるが、黒い正方形の背景は内側の.record-grid-nav-cell-boxだけに付ける
-   ——ボタン全体（外形、padding込み）に塗ると、サムネイル（紙の見える範囲、
-   外形よりpadding分小さい）より一回り大きく見えてしまい、9マスの見た目の
-   大きさが揃わない（ユーザー指摘：実測でズレを確認）。box自体の一辺は
-   recordGrid.ts syncNavCellSizeがthis.thumbnailSizePxと同じ値をJSで設定する
-   ——サムネイルのcanvas要素も同じ値から一辺を決めているため、常に一致する。 --- */
-.record-grid-nav-cell {
-  color: var(--ink-70);
-  font-size: 1.5rem;
-  line-height: 1;
-}
-
-.record-grid-nav-cell-box {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--ink-solid);
-  color: var(--paper-1);
-  border-radius: 10%;
-  filter: var(--canvas-shadow);
-}
-
-.record-grid-nav-cell:hover .record-grid-nav-cell-box {
-  background: var(--ink-85);
-}
-
-/* ネイティブのdisabled属性は使わない（recordGrid.ts setNavCellDisabled参照）
-   ——disabled + pointer-events:noneにすると、グレーアウト中のタップが
-   ヒットテストをすり抜けて背景（#record-grid-view）まで届いてしまい、
-   「マス以外をタップしたら閉じる」判定が誤って反応し、押しただけで記録一覧
-   ごと閉じてしまう不具合があった（ユーザー報告）。見た目のグレーアウトだけ
-   [aria-disabled]で行い、当たり判定自体はこのボタンで受け止め続ける
-   （実際に何もしないのはクリックハンドラ側で判定する）。 */
-.record-grid-nav-cell[aria-disabled="true"] {
-  opacity: 0.35;
-  cursor: default;
-}
-
-/* --- 練習用サンドボックス（tutorialSandbox.ts）。本物の#canvas-wrap相当の
-   円キャンバスを、読み物の幅に収まる控えめなサイズで中央に置く。 --- */
-.tutorial-sandbox {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  width: 100%;
-  gap: var(--space-3);
-  margin-top: var(--space-1);
-}
-
-.tutorial-sandbox-canvas-wrap {
-  position: relative;
-  width: 100%;
-  /* 高さの低いウィンドウでは240px固定だとモーダルがスクロールを要してしまう
-     （ユーザー報告：「振り返る」「選びとる」の2手順で発生——それぞれ振り返り
-     スライダー・結びの長い文章の分だけ他の手順より高さを必要とするため、
-     真っ先にここで溢れる）。.usage-guide-page側のmin-height（100dvh-200px）と
-     同じ「引き算」の形にし、そちらの床（720px高あたり）を下回ってから縮み
-     始めるよう定数を調整してある——欲張って高い側まで縮めると、通常の
-     ウィンドウ高さでも常時キャンバスが控えめなサイズになってしまうため。
-     一度この値（-460px）で検証環境（Linux/headless Chromium）上は解消した
-     つもりだったが、実機（Windows）ではなお数px〜十数px程度はみ出す報告が
-     あった——日本語フォントの行間計算がOSやフォントスタックによって微妙に
-     異なるため、ここで測った値をそのまま使うと足りないことがある。今後また
-     同じズレが起きないよう、実測でぎりぎり収まる値ちょうどではなく、
-     円を十分な大きさで表示しつつ低い画面にも収まる値（-420px）にしてある。 */
-  max-width: clamp(160px, calc(100dvh - 420px), 360px);
-  aspect-ratio: 1 / 1;
-}
-
-/* 道具バーを持たず「選択」道具に固定しているため、本物の空状態案内
-   （自由に書いてみる／＋テンプレートを使用）はここでは意味を持たない
-   ——全メモが消え切った稀なケースでも出さない。 */
-.tutorial-sandbox-canvas-wrap .canvas-empty-state {
-  display: none;
-}
-
-.tutorial-sandbox-message {
-  margin: 0;
-  min-height: 2.6em;
-  width: min(100%, 56ch);
-  font-size: var(--text-sm);
-  line-height: 1.85;
-  color: var(--ink-85);
-  text-align: center;
-  text-wrap: pretty;
-}
-
-.tutorial-sandbox-actions {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  min-height: 2.125rem;
-}
-
-/* スマホではシートをビューポート内の固定高レイアウトにする。デスクトップ用の
-   max-height + overflowでは、端末の短いdvh（横向き・アドレスバー表示中を含む）で
-   シート内と外側の二重スクロールが発生し、CSSだけ縮んだ円からcanvas本体が
-   はみ出してメモが見切れることがあった。ヘッダー以外をflexの残り領域へ収め、
-   円は横幅と残り高さの小さい方に合わせる。 */
-@media (max-width: 560px) {
-  .usage-guide {
-    padding: 8px;
-    overflow: hidden;
   }
 
-  /* 高さの短い端末では画面いっぱいまで使わないと練習用キャンバスが収まらないが、
-     背の高い端末でそのまま100dvhに合わせると、序（中身の少ない読み物画面）まで
-     画面いっぱいに広がって間延びして見えていた（ユーザー報告）。序・練どちらも
-     同じ大きさのまま、680pxを上限に収まる分だけ広げるようにする——短い端末では
-     従来どおりcalc(100dvh - 16px)側が効く。 */
-  .usage-guide-sheet {
-    display: flex;
-    flex-direction: column;
-    height: min(680px, calc(100dvh - 16px));
-    max-height: none;
-    overflow: hidden;
-    box-sizing: border-box;
-    padding: 12px 14px;
-    border-radius: 18px;
+  .toolbar-btn svg {
+    width: 1rem;
+    height: 1rem;
   }
 
-  .usage-guide-pages {
-    flex: 1 1 auto;
-    min-height: 0;
-    margin-top: 4px;
-  }
-
-  .usage-guide-page {
-    height: 100%;
-    gap: var(--space-2);
-    padding-bottom: 0;
-  }
-
-  .usage-guide-page--practice {
-    min-height: 0;
-    /* スマホでは縦に長い余白が上側へ偏りやすいため、練習内容を画面中央へ置く。
-       円だけを絶対配置すると説明文や操作との間隔が崩れるので、ひとまとまりの
-       レイアウトを保ったまま中央寄せする。 */
-    justify-content: center;
-  }
-
-  .tutorial-sandbox {
-    gap: var(--space-2);
-    min-height: 0;
-    margin-top: 0;
-  }
-
-  .tutorial-sandbox-canvas-wrap {
-    width: min(100%, clamp(90px, calc(100dvh - 350px), 360px));
-    max-width: none;
-    flex: 0 1 auto;
-  }
-
-  .tutorial-sandbox-message {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 4.95em;
-    min-height: 4.95em;
-    line-height: 1.65;
+  .app-footer {
+    padding: 0.25rem var(--space-3)
+      calc(0.25rem + env(safe-area-inset-bottom, 0px));
   }
 }
 
-/* 横向きスマホなど高さが特に短い場合は、序の挿絵と行間も詰める。
-   本文や操作をスクロール領域へ逃がさず、閉じるボタンまで常に画面内に保つ。 */
-@media (max-width: 900px) and (max-height: 520px) {
-  .usage-guide-page-content {
-    gap: var(--space-2);
-  }
-
-  .usage-guide-canvas {
-    width: 64px;
-    height: 64px;
-  }
-
-  .usage-guide-stage-body {
-    font-size: var(--text-xs);
-    line-height: 1.5;
-  }
-}
-
-/* --- 過去めくり画面（archiveCanvas.ts）でメモをドラッグしている間、指・
-   カーソルへ追従する小さなプレビュー。position:fixedで画面のどこにでも
-   置けるようにし、pointer-eventsは持たせない（下のキャンバスへのポインタ
-   イベントを妨げないため）。z-indexはtext-editor-overlay(20)より上、
-   全画面モーダル(41/500番台)より下——ドラッグ中に他のモーダルが同時に
-   開くことは無いため、それらより上まで出す必要はない。 --- */
-.history-drag-ghost {
-  position: fixed;
-  top: 0;
-  left: 0;
-  transform: translate(-50%, -50%);
-  z-index: 30;
-  pointer-events: none;
-  opacity: 0.7;
-}
-
-/* --- 過去めくり画面でメモをドラッグ中だけ画面右端からスライドインする
-   ドロップ帯（main.ts showDropZone/hideDropZone）。実際のドロップ判定は
-   JS側でclientX/Yとgetボundingclientrectを比較して行うため（isPointOverDropZone）、
-   この要素自体はpointer-eventsを持たない——ドラッグ元のarchive-canvasが
-   pointer captureを握ったままなので、奪う必要も奪える立場も無い。
-   hidden属性で出現/消滅の瞬間を切り替え、is-visibleクラスのtransformで
-   スライドイン/アウトのアニメーションを付ける（JS側のHISTORY_DROP_ZONE_
-   TRANSITION_MSと同じ200msに揃える）。z-indexはドラッグゴースト(30)より
-   下——ゴーストが常に帯の上に重なって見えるようにする。 --- */
-.history-drop-zone {
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 25;
-  width: min(30vw, 12rem);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-4);
-  border-left: 1px solid var(--ink-12);
-  border-radius: var(--radius-lg) 0 0 var(--radius-lg);
-  background: var(--paper-2);
-  box-shadow: var(--shadow-popover);
-  transform: translateX(100%);
-  transition: transform 200ms ease, background-color var(--duration-fast) ease;
-  pointer-events: none;
-}
-
-.history-drop-zone.is-visible {
-  transform: translateX(0);
-}
-
-.history-drop-zone.is-hover {
-  background: var(--paper-3);
-  border-left-color: var(--ink-20);
-}
-
-.history-drop-zone-label {
-  max-width: 100%;
-  font-size: var(--text-sm);
-  font-weight: 500;
-  color: var(--ink-70);
-  text-align: center;
-}
-
-/* --- 初回の朝リセット発生時にだけ出す一言ヒント（E2-14、main.ts
-   maybeShowFirstResetHint）。.canvas-empty-hintと同じ控えめな地の文の
-   トーンで、画面上部に浮かべて自動的にフェードアウトする一過性のトースト。 --- */
-.first-reset-hint {
-  position: fixed;
-  top: calc(env(safe-area-inset-top, 0px) + var(--space-4));
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 15;
-  margin: 0;
-  max-width: min(90vw, 32rem);
-  padding: 0.5rem var(--space-4);
-  border-radius: var(--radius-full);
-  background: var(--paper-2);
-  box-shadow: var(--shadow-card);
-  color: var(--ink-70);
-  font-size: var(--text-xs);
-  text-align: center;
-  pointer-events: none;
-}

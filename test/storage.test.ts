@@ -1,18 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-  appendExportEvent,
-  listArchivedDateKeys,
-  loadArchive,
-  loadArchiveExportFlags,
-  loadExportEvents,
-  loadFirstResetHintShown,
-  loadLastActiveDate,
   loadMemos,
-  markArchiveExportFlag,
-  markFirstResetHintShown,
-  saveArchive,
-  saveLastActiveDate,
+  loadSheetStartedAt,
+  loadThemePreference,
   saveMemos,
+  saveSheetStartedAt,
+  saveThemePreference,
 } from "../src/storage";
 import type { Memo } from "../src/types";
 
@@ -194,142 +187,86 @@ describe("storage migration（道具・色を持たない古い形式のデー�
   });
 });
 
-describe("アーカイブ（朝リセットで退避したメモ、dailyReset.ts参照）", () => {
-  const memo: Memo = {
-    id: "memo_archived",
-    kind: "stroke",
-    x: 0,
-    y: 0,
-    strokes: [[{ x: 0, y: 0 }]],
-    createdAt: 100,
-    status: "active",
-    tool: "pen",
-    color: "#000000",
-  };
-
-  it("日付キーごとにmemosキーと同じ形式でそのまま往復する", () => {
-    saveArchive("2026-09-01", [memo]);
-    expect(loadArchive("2026-09-01")).toEqual([memo]);
+describe("セキュリティ・入力検証（localStorage改ざん・破損耐性）", () => {
+  it("NaNやInfinityを含む座標データは読み飛ばす", () => {
+    localStorage.setItem(
+      "memos",
+      '[{"id":"m1","kind":"stroke","x":null,"y":0,"strokes":[[{"x":0,"y":0}]],"createdAt":100,"status":"active"}]'
+    );
+    expect(loadMemos()).toEqual([]);
   });
 
-  it("localStorage上は暗号化されていないプレーンなJSON配列として保存される", () => {
-    saveArchive("2026-09-01", [memo]);
-    const raw = localStorage.getItem("archive:2026-09-01");
-    expect(raw).not.toBeNull();
-    expect(JSON.parse(raw!)).toEqual([memo]);
+  it("strokesの内部要素がPoint配列でない不正データを読み飛ばす", () => {
+    const malformed = [
+      {
+        id: "m_bad_strokes",
+        kind: "stroke",
+        x: 0,
+        y: 0,
+        strokes: [["not-a-point"], [{ x: "bad", y: 0 }]],
+        createdAt: 100,
+        status: "active",
+      },
+    ];
+    localStorage.setItem("memos", JSON.stringify(malformed));
+    expect(loadMemos()).toEqual([]);
   });
 
-  it("日付キーが異なればそれぞれ独立して保持される", () => {
-    saveArchive("2026-09-01", [memo]);
-    saveArchive("2026-09-02", []);
-    expect(loadArchive("2026-09-01")).toHaveLength(1);
-    expect(loadArchive("2026-09-02")).toHaveLength(0);
-  });
-
-  it("存在しない日付キーは空配列を返す", () => {
-    expect(loadArchive("2099-01-01")).toEqual([]);
-  });
-
-  it("壊れたJSON文字列は例外を投げず空配列を返す", () => {
-    localStorage.setItem("archive:2026-09-01", "{not valid json");
-    expect(loadArchive("2026-09-01")).toEqual([]);
-  });
-});
-
-describe("listArchivedDateKeys（記録一覧画面、recordGrid.ts参照）", () => {
-  const memo: Memo = {
-    id: "memo_listed",
-    kind: "stroke",
-    x: 0,
-    y: 0,
-    strokes: [[{ x: 0, y: 0 }]],
-    createdAt: 100,
-    status: "active",
-    tool: "pen",
-    color: "#000000",
-  };
-
-  it("未記録の間は空配列を返す", () => {
-    expect(listArchivedDateKeys()).toEqual([]);
-  });
-
-  it("保存済みの日付キーを全て返す", () => {
-    saveArchive("2026-09-01", [memo]);
-    saveArchive("2026-09-02", [memo]);
-    expect(listArchivedDateKeys().sort()).toEqual(["2026-09-01", "2026-09-02"]);
-  });
-
-  it("archive:以外のキー（memos/lastActiveDate等）は含めない", () => {
-    saveArchive("2026-09-01", [memo]);
-    saveMemos([memo]);
-    saveLastActiveDate("2026-09-03");
-    expect(listArchivedDateKeys()).toEqual(["2026-09-01"]);
+  it("不正なCSS色文字列やインジェクション文字列は既定のインク色にフォールバックする", () => {
+    const tampered = [
+      {
+        id: "m_color_tamper",
+        kind: "stroke",
+        x: 0,
+        y: 0,
+        strokes: [[{ x: 0, y: 0 }]],
+        createdAt: 100,
+        status: "active",
+        tool: "evil-tool",
+        color: "red; background: url(https://evil.example/x)",
+      },
+    ];
+    localStorage.setItem("memos", JSON.stringify(tampered));
+    const loaded = loadMemos();
+    expect(loaded).toHaveLength(1);
+    expect(loaded[0].tool).toBe("pen");
+    expect(loaded[0].color).toBe("oklch(22% 0.012 55)");
   });
 });
 
-describe("lastActiveDate（朝リセットの日付比較用、dailyReset.ts参照）", () => {
+describe("sheetStartedAt（8時間タイマー開始時刻）", () => {
   it("未設定の間はnullを返す", () => {
-    expect(loadLastActiveDate()).toBeNull();
+    expect(loadSheetStartedAt()).toBeNull();
   });
 
-  it("保存した値がそのまま読める", () => {
-    saveLastActiveDate("2026-09-03");
-    expect(loadLastActiveDate()).toBe("2026-09-03");
-  });
-});
-
-describe("firstResetHintShown（初回の朝リセット時だけ出す一言ヒント、E2-14）", () => {
-  it("未設定の間はfalseを返す", () => {
-    expect(loadFirstResetHintShown()).toBe(false);
+  it("正のタイムスタンプを保存・復元でき、nullでリセットできる", () => {
+    saveSheetStartedAt(1700000000000);
+    expect(loadSheetStartedAt()).toBe(1700000000000);
+    saveSheetStartedAt(null);
+    expect(loadSheetStartedAt()).toBeNull();
   });
 
-  it("markFirstResetHintShown後はtrueを返す", () => {
-    markFirstResetHintShown();
-    expect(loadFirstResetHintShown()).toBe(true);
+  it("不正な文字列や0以下の値はnullを返す", () => {
+    localStorage.setItem("sheetStartedAt", "not-a-number");
+    expect(loadSheetStartedAt()).toBeNull();
+    localStorage.setItem("sheetStartedAt", "-100");
+    expect(loadSheetStartedAt()).toBeNull();
   });
 });
 
-describe("エクスポートイベントログ（E8-06、コアループの利用実態計測）", () => {
-  it("未記録の間は空配列を返す", () => {
-    expect(loadExportEvents()).toEqual([]);
+describe("themePreference（テーマ設定の保存・復元）", () => {
+  it("未設定または不正値の場合はsystemを返す", () => {
+    expect(loadThemePreference()).toBe("system");
+    localStorage.setItem("themePreference", "invalid");
+    expect(loadThemePreference()).toBe("system");
   });
 
-  it("appendExportEventで追記した内容がそのまま往復する", () => {
-    appendExportEvent({ timestamp: 1000, kind: "image" });
-    appendExportEvent({ timestamp: 2000, kind: "text" });
-    expect(loadExportEvents()).toEqual([
-      { timestamp: 1000, kind: "image" },
-      { timestamp: 2000, kind: "text" },
-    ]);
-  });
-
-  it("localStorage上は暗号化されていないプレーンなJSON配列として保存される", () => {
-    appendExportEvent({ timestamp: 1000, kind: "image" });
-    const raw = localStorage.getItem("exportEvents");
-    expect(raw).not.toBeNull();
-    expect(JSON.parse(raw!)).toEqual([{ timestamp: 1000, kind: "image" }]);
-  });
-
-  it("壊れたJSON文字列は例外を投げず空配列を返す", () => {
-    localStorage.setItem("exportEvents", "{not valid json");
-    expect(loadExportEvents()).toEqual([]);
-  });
-});
-
-describe("archiveExportFlags（E8-06、日付ごとの持ち出しフラグ）", () => {
-  it("未記録の間は空オブジェクトを返す", () => {
-    expect(loadArchiveExportFlags()).toEqual({});
-  });
-
-  it("日付キーごとにtrue/falseを記録できる", () => {
-    markArchiveExportFlag("2026-09-01", true);
-    markArchiveExportFlag("2026-09-02", false);
-    expect(loadArchiveExportFlags()).toEqual({ "2026-09-01": true, "2026-09-02": false });
-  });
-
-  it("同じ日付キーへの再記録は上書きする", () => {
-    markArchiveExportFlag("2026-09-01", false);
-    markArchiveExportFlag("2026-09-01", true);
-    expect(loadArchiveExportFlags()).toEqual({ "2026-09-01": true });
+  it("light / dark / system を保存してそのまま読み込める", () => {
+    saveThemePreference("dark");
+    expect(loadThemePreference()).toBe("dark");
+    saveThemePreference("light");
+    expect(loadThemePreference()).toBe("light");
+    saveThemePreference("system");
+    expect(loadThemePreference()).toBe("system");
   });
 });

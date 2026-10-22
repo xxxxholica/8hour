@@ -1,6 +1,12 @@
-import { createFadeVisibility } from "./fadeVisibility";
 import { FrameGeometry } from "./frameGeometry";
-import { circleIntersectsBox, clampBoxCenter, isInsideClamp, pointNearStrokes } from "./geometry";
+import {
+  circleIntersectsBox,
+  clampBoxCenter,
+  computeMemoDisplayOffset,
+  distance,
+  isInsideClamp,
+  pointNearStrokes,
+} from "./geometry";
 import { drawRadialGlow, renderMemoAt } from "./memoRenderer";
 import type { MemoStore } from "./memoStore";
 import { drawRuledPaper } from "./paper";
@@ -12,48 +18,15 @@ import {
   TEXT_FONT_FAMILY,
   wrapTextAtReferenceScale,
 } from "./textLayout";
+import { isDarkThemeActive, resolveInkColor } from "./theme";
 import { REFERENCE_RADIUS } from "./toolStyle";
 import type { ToolbarTool } from "./toolbar";
 import type { Memo, Point, TextMemo } from "./types";
 
-const CENTER_DOT = "oklch(22% 0.012 55 / 0.18)";
 const TRACE_GLOW = "oklch(22% 0.012 55 / 0.14)";
-/** 空のキャンバスの案内（.canvas-empty-state、DOM側）を、円の中心からどれだけ
- *  下にずらして置くか（正規化単位）。以前canvasに直接fillTextしていたときと
- *  同じ位置。 */
-const EMPTY_STATE_OFFSET_Y = 0.32;
-/** 空のキャンバスの案内文（.canvas-empty-hint）の候補。表示のたびに1つを
- *  ランダムに選ぶ（syncEmptyState参照、ユーザー指示）。 */
-const EMPTY_STATE_HINTS = [
-  "気になることをメモしてみよう",
-  "落書き感覚でひとこと残してみよう",
-  "食べたいものを記録してみよう",
-  "明日の予定をまとめてみよう",
-  "ひらめきをそのまま置いてみよう",
-  "あ、これあとでやらなきゃ…",
-  "思いついた。忘れる前に書いとこ",
-  "とりあえずここに下書き…",
-  "サクッと書いておく？",
-  "気になったもの、メモメモ",
-];
-/** 次の文言に切り替わるまで、今の文言をそのまま（フェードなしで）表示し続ける時間。 */
-const EMPTY_STATE_HINT_VISIBLE_MS = 6000;
-/** フェードアウトそのものにかける時間（ユーザー指示）。素早く消えるのではなく、
- *  ゆっくり薄れて消える見た目にする。opacityの遷移時間はJS側（rotateEmptyStateHint）
- *  からstyle.transitionDurationとして都度渡すため、CSS側には固定のtransition
- *  durationを書いていない（transition-property/timing-functionのみ、style.css参照）。 */
-const EMPTY_STATE_HINT_FADE_OUT_MS = 5000;
-/** 差し替え後、次の文言をタイプライターのように1文字ずつ打ち込んで見せる際の
- *  1文字あたりの間隔（ユーザー指示）。 */
-const EMPTY_STATE_HINT_TYPE_MS = 100;
-
-/** exclude（今表示中の文言）以外から1つ選ぶ。切り替え時に同じ文言が
- *  連続して出ないようにする。 */
-function pickRandomEmptyStateHint(exclude?: string | null): string {
-  const pool = exclude ? EMPTY_STATE_HINTS.filter((h) => h !== exclude) : EMPTY_STATE_HINTS;
-  return pool[Math.floor(Math.random() * pool.length)];
-}
+const TRACE_GLOW_DARK = "oklch(92% 0.006 75 / 0.18)";
 const ERASER_CURSOR = "oklch(22% 0.012 55 / 0.3)";
+const ERASER_CURSOR_DARK = "oklch(92% 0.006 75 / 0.4)";
 /** 消しゴムの当たり範囲プレビュー円の内側の塗り。以前は輪郭線のみで内側が
  *  完全に透明だったため、実際に消える範囲がひと目で分かりづらかった
  *  （ユーザー指摘）。薄いグレーで軽く塗ることで範囲を分かりやすくする——
@@ -91,10 +64,6 @@ const MAX_ZOOM = 3;
  */
 const TAP_MAX_MOVEMENT_PX = 12;
 const TAP_MAX_DURATION_MS = 400;
-
-function pointerDistance(a: Point, b: Point): number {
-  return Math.hypot(a.x - b.x, a.y - b.y);
-}
 
 function pointerMidpoint(a: Point, b: Point): Point {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
@@ -143,53 +112,27 @@ interface DrawState {
  * ——ウィンドウを広げれば単純にその分だけ拡大して描かれる。
  */
 export interface CircularCanvasOptions {
-  /** キャンバスの枠のサイズに対する割合。省略した場合はfitCanvasToContainer
-   *  の既定値（固定0.43）を使う。 */
-  contentScaleFactor?: number | ((size: number) => number);
-  /** computeSquareSize（canvasSizing.ts）の下限をMIN_CANVAS_SIZE(200px)から
-   *  差し替える。使い方ページの練習用サンドボックス（tutorialSandbox.ts）
-   *  専用——本物のMIN_CANVAS_SIZEのままだと、CSS側でコンテナをそれより
-   *  小さく（.tutorial-sandbox-canvas-wrap、style.css）縮めても、この下限が
-   *  優先されてcanvas要素がコンテナの外へはみ出し、下の説明文と重なって
-   *  見えてしまう（ユーザー報告）。省略時は本物と同じMIN_CANVAS_SIZE。 */
-  minCanvasSizePx?: number;
-  /** falseの場合、ポインタ操作を一切受け付けない。既定true。 */
-  interactive?: boolean;
-  /** text-editor-overlay（.text-editor-overlay、既定z-index:20）の実際のz-indexを
-   *  呼び出し側で上書きする。全画面モーダル（テンプレート選択・使い方ページ、
-   *  いずれもz-index 40番台）は「モーダルの中の本物のキャンバスへ書きかけの
-   *  テキストが残っていても隠す」という前提でtext-editor-overlayより上に
-   *  意図して設計されているが、使い方ページの練習用サンドボックス
-   *  （tutorialSandbox.ts）はモーダルの内側で本物のテキスト入力を体験させる
-   *  ため、逆にモーダル自身（z-index 41）より前面に出す必要がある。 */
-  textEditorZIndex?: number;
-  /** text-editor-overlayの画面上の幅の下限(px)。既定の幅計算
-   *  （openTextEditorのwidthMeasureFontSize・resizeToContent参照）は、
-   *  「表示上のfont-sizeは16px未満に落とさない」補正の分だけ基準スケールの
-   *  文字サイズを引き上げて測るが、その測定結果（基準円スケールでの
-   *  px、MIN〜MAX_TEXT_BOX_WIDTH_PXの範囲）を画面pxへ変換する際は実際の
-   *  effectiveScale()をそのまま掛けるため、本物のキャンバスでは起きない
-   *  ほど半径が小さい（使い方ページの練習用サンドボックス、
-   *  tutorialSandbox.ts）場合、変換後の画面幅が1〜2文字ぶんしかない
-   *  極端に細い入力欄になってしまう（ユーザー報告：入力欄が下の説明文と
-   *  重なって見える——1文字ずつ縦に折り返された結果、タップ位置から
-   *  下へ何行分も伸びてしまうため）。省略時は下限なし（本物と同じ挙動）。 */
-  textEditorMinWidthPx?: number;
   /** 粗いポインター（主にスマホ）で入力欄をキーボード直上へ固定するか。
-   *  省略時はtrue。本体では画面のリサイズやパンに強い固定表示を使う一方、
-   *  練習用の小さな円ではタップ位置との対応を見せるためfalseにできる。 */
+   *  省略時はtrue。 */
   fixedBottomTextEditorOnCoarsePointer?: boolean;
-  /** テキストメモ描画時の最小フォントサイズ。練習画面では入力欄と同じ16pxに揃える。 */
-  minRenderedTextFontPx?: number;
-  /** メモ作成時刻の供給元。省略時は実時間。練習画面は加速した仮想時計を渡す。 */
-  nowProvider?: () => number;
   /** 道具バーで何も選ばずキーボードから直接文字を打ち始めた時
-   *  （onGlobalKeyDown/startTextInputAtCenter、印字可能キー1文字での新規
-   *  テキストメモ作成）に呼ぶ。実際にはテキストメモの作成が始まっているのに
-   *  道具バー上は元の道具（多くは「道具なし」）のまま変わらず見えていた
-   *  （ユーザー指摘）ため、呼び出し側（main.ts）がここで道具バーの表示を
-   *  テキストへ切り替える。 */
+   *  （onGlobalKeyDown、印字可能キー1文字での新規テキストメモ作成）に呼ぶ。
+   *  実際にはテキストメモの作成が始まっているのに道具バー上は元の道具
+   *  （多くは「道具なし」）のまま変わらず見えていた（ユーザー指摘）ため、
+   *  呼び出し側（main.ts）がここで道具バーの表示をテキストへ切り替える。 */
   onAutoTextToolStart?: () => void;
+  /** キャンバス中央の背景に大きく描くタイマー文字列（例："08:00:00"）。 */
+  getBackgroundTimerText?: () => string;
+}
+
+interface TimerSlotAnim {
+  fromChar: string;
+  toChar: string;
+  startTime: number;
+  durationMs: number;
+  /** 1 = 時間が巻き戻る（古い数字が下へ降り、新しい数字が上から降りてくる）、
+   *  -1 = カウントダウンで進む（古い数字が上へ抜け、新しい数字が下から上がる）。 */
+  direction: 1 | -1;
 }
 
 export class CircularCanvas {
@@ -200,7 +143,6 @@ export class CircularCanvas {
   /** フレーム形状・サイズ計算・縁取りの描画をまとめて持つ（canvasView.tsが
    *  肥大化したための整理、Refactor。src/frameGeometry.ts参照）。 */
   private frame: FrameGeometry;
-  private interactive: boolean;
   private state: DrawState = {
     mode: "idle",
     activeMemoId: null,
@@ -224,24 +166,6 @@ export class CircularCanvas {
   /** openTextEditorがhtml/bodyのoverflowを固定している間、元の値に戻すための関数
    *  （閉じるときにnullへ戻す）。理由はopenTextEditor内のコメント参照。 */
   private restoreBodyScroll: (() => void) | null = null;
-  /** 空のキャンバスに重ねる案内（「自由に書いてみる」）。ボタンとして押せる・
-   *  読み上げられる必要があるため、canvasへの描画ではなく本物のDOMで持つ。
-   *  interactive:falseのプレースホルダーでは作らない（nullのまま）。 */
-  private emptyStateEl: HTMLElement | null = null;
-  private emptyStateHintEl: HTMLElement | null = null;
-  private setEmptyStateVisible: ((show: boolean) => void) | null = null;
-  private emptyStateShown = false;
-  /** 案内文をEMPTY_STATE_HINT_VISIBLE_MSだけ表示した後、フェードアウトを
-   *  開始するまでの1回限りのタイマー。案内が表示されている間だけ動かす
-   *  （startEmptyStateHintRotation/stopEmptyStateHintRotation参照）。 */
-  private emptyStateHintHoldTimer: ReturnType<typeof setTimeout> | null = null;
-  /** フェードアウトが終わってテキストを差し替える1回限りのタイマー。案内が
-   *  消える・破棄されるタイミングで取り残さないようstopEmptyStateHintRotationで
-   *  一緒に消す。 */
-  private emptyStateHintFadeTimer: ReturnType<typeof setTimeout> | null = null;
-  /** 差し替え後の文言を1文字ずつ打ち込んで見せる間のタイマー。同上の理由で
-   *  stopEmptyStateHintRotationで一緒に消す。 */
-  private emptyStateHintTypeTimer: ReturnType<typeof setInterval> | null = null;
   /** 消しゴムツールでの当たり範囲プレビュー用（ユーザー指示：クリックして実際に
    *  消し始めるまで、消しゴムの大きさが分からない問題を解消したい）。上のhoverInfo
    *  と同じ理由でmouseの間だけ、実際に消し始める前（mode==="idle"）に更新する
@@ -280,6 +204,9 @@ export class CircularCanvas {
   private pinchPointers = new Map<number, { pos: Point; downPos: Point }>();
   private viewZoom = 1;
   private viewPan: Point = { x: 0, y: 0 };
+  private prevTimerText: string | null = null;
+  private timerSlotAnims: Array<TimerSlotAnim | null> = [];
+  private timerDisplayAlpha: number | null = null;
   /** 直前にResizeObserverのコールバックを処理した時点のコンテナの実サイズ。
    *  過去めくり画面の開閉でcanvasWrap.hiddenを切り替えると、コンテナが
    *  display:noneになって0x0を経由してからまた元のサイズに戻るだけの
@@ -300,12 +227,22 @@ export class CircularCanvas {
   private tapGestureValid = true;
   /** 今回の一連のマルチタッチが始まった時刻（最初の指が触れた瞬間）。 */
   private tapGestureStartAt = 0;
-  private textEditorZIndex: number | undefined;
-  private textEditorMinWidthPx: number | undefined;
   private fixedBottomTextEditorOnCoarsePointer: boolean;
-  private minRenderedTextFontPx: number | undefined;
-  private nowProvider: () => number;
   private onAutoTextToolStart: (() => void) | undefined;
+  private getBackgroundTimerText: (() => string) | undefined;
+  private locked = false;
+
+  setLocked(locked: boolean): void {
+    if (this.locked === locked) return;
+    this.locked = locked;
+    if (locked) {
+      this.closeWritingSession();
+      this.finishTextEditingIfOpen();
+      this.activePointerId = null;
+      this.endSinglePointerGesture();
+      this.eraserHoverPoint = null;
+    }
+  }
 
   constructor(
     container: HTMLElement,
@@ -316,41 +253,26 @@ export class CircularCanvas {
     this.container = container;
     this.store = store;
     this.getToolState = getToolState;
-    this.interactive = options.interactive ?? true;
-    this.textEditorZIndex = options.textEditorZIndex;
-    this.textEditorMinWidthPx = options.textEditorMinWidthPx;
     this.fixedBottomTextEditorOnCoarsePointer = options.fixedBottomTextEditorOnCoarsePointer ?? true;
-    this.minRenderedTextFontPx = options.minRenderedTextFontPx;
-    this.nowProvider = options.nowProvider ?? Date.now;
     this.onAutoTextToolStart = options.onAutoTextToolStart;
+    this.getBackgroundTimerText = options.getBackgroundTimerText;
     this.canvas = document.createElement("canvas");
     this.canvas.className = "circle-canvas";
+    this.canvas.style.fontVariantNumeric = "lining-nums tabular-nums";
+    this.canvas.style.fontFeatureSettings = '"lnum" 1, "tnum" 1';
     this.container.appendChild(this.canvas);
     const ctx = this.canvas.getContext("2d");
     if (!ctx) throw new Error("2D canvas context is not available");
     this.ctx = ctx;
 
-    this.frame = new FrameGeometry(this.canvas, this.container, this.dpr, {
-      contentScaleFactor: options.contentScaleFactor,
-      minCanvasSizePx: options.minCanvasSizePx,
-    });
+    this.frame = new FrameGeometry(this.canvas, this.container, this.dpr);
     // ウィンドウのリサイズだけでなく、フッターの折り返しやフォント読み込みによる
     // レイアウト変化など、コンテナの実サイズが変わるあらゆるタイミングを動的に捉える
     this.resizeObserver = new ResizeObserver(() => {
       this.frame.resize();
+      this.frame.syncScaleForMemos(this.store.getActive());
       // レイアウトが変わった後に古いズーム・パン量を引きずると見た目が破綻する
       // ため、コンテナの実サイズが変わった場合はリセットする（画面回転など）。
-      // ただしResizeObserver自体は「実際に幅・高さが変わったか」を問わず発火する
-      // ——過去めくり画面の開閉でcanvasWrap.hiddenを切り替えると、コンテナが
-      // 一度0x0を経由してから元と同じサイズに戻るだけでも発火してしまうため、
-      // 前回計測したサイズと比較し、実質的な変化が無ければズーム・パンは
-      // 保持する（ユーザー報告：過去めくり画面を開閉するだけでズームが消える）。
-      // rectが0x0（canvasWrap.hidden化で一時的に不可視になった瞬間）は「実際の
-      // レイアウト情報が無い」状態として扱い、比較対象の更新自体をスキップする
-      // ——ここでlastContainerSizeを0x0のまま書き換えてしまうと、再表示された
-      // 瞬間に「0から実サイズへ変わった」と誤検知して結局リセットしてしまう
-      // （非表示→表示の往復2回のうち、後半の発火だけでリセットが起きてしまい
-      // ガードが効かなかった実測不具合）。
       const rect = this.container.getBoundingClientRect();
       if (rect.width > 0 && rect.height > 0) {
         const sizeChanged =
@@ -363,7 +285,6 @@ export class CircularCanvas {
           this.viewPan = { x: 0, y: 0 };
         }
       }
-      this.syncEmptyStatePosition();
       // モバイルでソフトキーボードが開閉するとcontainerの実サイズが変わり
       // ここが発火する。text-editor-overlayを開いたままだと、位置がタップ時点の
       // 古いフレームのまま取り残されてしまうため、開いていれば今のフレームに
@@ -372,168 +293,44 @@ export class CircularCanvas {
     });
     this.resizeObserver.observe(this.container);
 
-    if (this.interactive) {
-      // キャンバス自身は独自のタッチ操作（描画・消しゴム等）を全て自前で処理する
-      // ため、ブラウザ純正のタッチ操作（スクロール等）は不要——それ以外の画面
-      // 全体については、style.cssのhtml,bodyにtouch-action: pan-x pan-yを
-      // 設定してあり、ページのどこでピンチしてもブラウザ純正のピンチズームには
-      // 奪われず、下のonGlobalPointerDown等の自前のピンチズームだけが働く
-      // （スクロールは引き続き効く。ユーザー指示：「画面のどこでもズームを
-      // 実行可能にしたい」）。
-      this.canvas.style.touchAction = "none";
-      this.canvas.addEventListener("pointerdown", this.onPointerDown);
-      this.canvas.addEventListener("pointermove", this.onPointerMove);
-      this.canvas.addEventListener("pointerleave", this.onPointerLeave);
-      window.addEventListener("pointerup", this.onPointerUp);
-      window.addEventListener("pointercancel", this.onPointerUp);
-      window.addEventListener("keydown", this.onGlobalKeyDown);
-      // ページのどこでタッチしても2本指ならこのキャンバスをピンチズームできる
-      // ように、キャンバス要素の外側で発生した指も含めてwindowレベルで監視する。
-      window.addEventListener("pointerdown", this.onGlobalPointerDown);
-      window.addEventListener("pointermove", this.onGlobalPointerMove);
-      window.addEventListener("pointerup", this.onGlobalPointerUp);
-      window.addEventListener("pointercancel", this.onGlobalPointerUp);
-      window.visualViewport?.addEventListener("resize", this.onVisualViewportChange);
-      window.visualViewport?.addEventListener("scroll", this.onVisualViewportChange);
-      // 空のキャンバスの案内は対話可能なキャンバスにだけ持たせる——ルーム未接続の
-      // プレースホルダー（interactive:false）は無地の白い紙のままにする（ユーザー指示）。
-      this.buildEmptyState();
-    }
+    // キャンバス自身は独自のタッチ操作（描画・消しゴム等）を全て自前で処理する
+    // ため、ブラウザ純正のタッチ操作（スクロール等）は不要——それ以外の画面
+    // 全体については、style.cssのhtml,bodyにtouch-action: pan-x pan-yを
+    // 設定してあり、ページのどこでピンチしてもブラウザ純正のピンチズームには
+    // 奪われず、下のonGlobalPointerDown等の自前のピンチズームだけが働く
+    // （スクロールは引き続き効く。ユーザー指示：「画面のどこでもズームを
+    // 実行可能にしたい」）。
+    this.canvas.style.touchAction = "none";
+    this.canvas.addEventListener("pointerdown", this.onPointerDown);
+    this.canvas.addEventListener("pointermove", this.onPointerMove);
+    this.canvas.addEventListener("pointerleave", this.onPointerLeave);
+    window.addEventListener("pointerup", this.onPointerUp);
+    window.addEventListener("pointercancel", this.onPointerUp);
+    window.addEventListener("keydown", this.onGlobalKeyDown);
+    // ページのどこでタッチしても2本指ならこのキャンバスをピンチズームできる
+    // ように、キャンバス要素の外側で発生した指も含めてwindowレベルで監視する。
+    window.addEventListener("pointerdown", this.onGlobalPointerDown);
+    window.addEventListener("pointermove", this.onGlobalPointerMove);
+    window.addEventListener("pointerup", this.onGlobalPointerUp);
+    window.addEventListener("pointercancel", this.onGlobalPointerUp);
+    window.visualViewport?.addEventListener("resize", this.onVisualViewportChange);
+    window.visualViewport?.addEventListener("scroll", this.onVisualViewportChange);
   }
 
-  /** 現在の書き込みクランプ関数。キャンバスの枠形状（正方形・角丸）のclampを
-   *  そのまま使う。onPointerDownでpointerdown自体の可否ゲートとしても
-   *  使われている。 */
+  /** 現在の書き込みクランプ関数。画面全体の矩形範囲のclampをそのまま使う。 */
   private inputClamp(): (p: Point) => Point {
-    return this.frame.currentShape().clamp;
+    return this.frame.viewportClamp();
   }
 
-  /** 空のキャンバスに重ねる案内を組み立てる。canvas要素の兄弟としてcontainerに
-   *  入れる（position:absolute、containerに付けた.canvas-hostが基準）——画面固定
-   *  (position:fixed)でbody直下に置く.text-editor-overlayと違い、この案内は
-   *  出しっぱなしになる要素のため、タブを切り替えて#canvas-panelがhiddenに
-   *  なったときに一緒に消えてくれるcontainerの子である方が確実。 */
-  private buildEmptyState(): void {
-    this.container.classList.add("canvas-host");
-
-    const el = document.createElement("div");
-    el.className = "canvas-empty-state fade-visible";
-    el.hidden = true;
-
-    const hint = document.createElement("p");
-    hint.className = "canvas-empty-hint";
-    hint.textContent = pickRandomEmptyStateHint();
-    el.appendChild(hint);
-    this.emptyStateHintEl = hint;
-
-    this.container.appendChild(el);
-    this.emptyStateEl = el;
-    this.setEmptyStateVisible = createFadeVisibility(el);
-    this.syncEmptyStatePosition();
-  }
-
-  /** 案内を「書ける領域の中心のすこし下」に合わせ直す。位置が変わるのはコンテナの
-   *  リサイズとフレーム形状の切り替え（どちらもframe.resize()を通る）だけなので、
-   *  renderの毎フレームではなくそのタイミングだけで呼ぶ（smuiViewのrepositionStatus
-   *  と同じ、毎フレームのレイアウト読み出しを避ける流儀）。 */
-  private syncEmptyStatePosition(): void {
-    const el = this.emptyStateEl;
-    if (!el) return;
-    const scale = this.effectiveScale();
-    const dy = EMPTY_STATE_OFFSET_Y * scale;
-    el.style.left = `${this.canvas.offsetLeft + this.frame.centerPx.x + this.viewPan.x}px`;
-    el.style.top = `${this.canvas.offsetTop + this.frame.centerPx.y + this.viewPan.y + dy}px`;
+  /** 現在のウィンドウサイズに応じたメモの表示位置オフセット（正規化単位）。 */
+  private memoDisplayOffset(memo: Memo): Point {
+    const { halfW, halfH } = this.frame.usableHalfExtents();
+    return computeMemoDisplayOffset(memo, halfW, halfH);
   }
 
   /** ピンチズームの倍率を加味した、正規化座標→画面px変換の実効スケール。 */
   private effectiveScale(): number {
     return this.frame.scale * this.viewZoom;
-  }
-
-  /** 案内を出す条件（メモが1つも無い／テキスト入力中でない）を毎フレーム見直す
-   *  （テンプレートは選んだ瞬間に置かれるため、この条件だけで足りる）。
-   *  メモの増減はクラウド同期・共有ルームのポーリング・寿命切れなど
-   *  通知の無い経路でも起きるため、renderのついでに見るのがいちばん確実——DOMに触るのは
-   *  表示・非表示が実際に切り替わった瞬間だけにする。 */
-  private syncEmptyState(activeMemoCount: number): void {
-    if (!this.emptyStateEl || !this.setEmptyStateVisible) return;
-    const show = activeMemoCount === 0 && !this.textEditor;
-    if (show === this.emptyStateShown) return;
-    this.emptyStateShown = show;
-    if (show) {
-      this.syncEmptyStatePosition(); // 隠れている間にリサイズされていた場合に備える
-      if (this.emptyStateHintEl) {
-        // 前回の非表示化がフェードの途中で止められていた場合に備え、
-        // 不透明度を確実にリセットしてから文言を決め直す。
-        this.emptyStateHintEl.style.transitionDuration = "0ms";
-        this.emptyStateHintEl.style.opacity = "1";
-        this.typeEmptyStateHint(pickRandomEmptyStateHint());
-      }
-    } else {
-      this.stopEmptyStateHintRotation();
-    }
-    this.setEmptyStateVisible(show);
-  }
-
-  /** 案内文の自動切り替えサイクルのうち「表示している時間」を計るタイマーを
-   *  開始する（案内が表示されている間だけ）。打ち込みが終わった直後
-   *  （typeEmptyStateHint参照）に呼ぶ。二重に走らせないよう、まず既存のタイマーを
-   *  止めてから張り直す。 */
-  private startEmptyStateHintRotation(): void {
-    this.stopEmptyStateHintRotation();
-    this.emptyStateHintHoldTimer = setTimeout(() => this.fadeOutEmptyStateHint(), EMPTY_STATE_HINT_VISIBLE_MS);
-  }
-
-  /** 案内文の自動切り替えを止める。案内が消える瞬間、およびdestroy()で呼ぶ。 */
-  private stopEmptyStateHintRotation(): void {
-    if (this.emptyStateHintHoldTimer !== null) {
-      clearTimeout(this.emptyStateHintHoldTimer);
-      this.emptyStateHintHoldTimer = null;
-    }
-    if (this.emptyStateHintFadeTimer !== null) {
-      clearTimeout(this.emptyStateHintFadeTimer);
-      this.emptyStateHintFadeTimer = null;
-    }
-    if (this.emptyStateHintTypeTimer !== null) {
-      clearInterval(this.emptyStateHintTypeTimer);
-      this.emptyStateHintTypeTimer = null;
-    }
-  }
-
-  /** 案内文をEMPTY_STATE_HINT_FADE_OUT_MSかけてゆっくりフェードアウトさせる
-   *  （ユーザー指示）。完了したら差し替えて打ち込みを始める。 */
-  private fadeOutEmptyStateHint(): void {
-    const el = this.emptyStateHintEl;
-    if (!el) return;
-    el.style.transitionDuration = `${EMPTY_STATE_HINT_FADE_OUT_MS}ms`;
-    el.style.opacity = "0";
-    this.emptyStateHintFadeTimer = setTimeout(() => {
-      this.emptyStateHintFadeTimer = null;
-      this.typeEmptyStateHint(pickRandomEmptyStateHint(el.textContent));
-    }, EMPTY_STATE_HINT_FADE_OUT_MS);
-  }
-
-  /** 案内文をフェードではなく、タイプライターのように1文字ずつ打ち込んで見せる
-   *  （ユーザー指示：フェードインではなく入力されているような見た目にしたい）。
-   *  打ち終えたら「表示している時間」のタイマー（startEmptyStateHintRotation）を
-   *  開始する。 */
-  private typeEmptyStateHint(text: string): void {
-    const el = this.emptyStateHintEl;
-    if (!el) return;
-    el.style.transitionDuration = "0ms";
-    el.style.opacity = "1";
-    el.textContent = "";
-    const chars = Array.from(text); // サロゲートペア・結合文字を1文字単位で崩さない
-    let i = 0;
-    this.emptyStateHintTypeTimer = setInterval(() => {
-      i++;
-      el.textContent = chars.slice(0, i).join("");
-      if (i >= chars.length) {
-        clearInterval(this.emptyStateHintTypeTimer!);
-        this.emptyStateHintTypeTimer = null;
-        this.startEmptyStateHintRotation();
-      }
-    }, EMPTY_STATE_HINT_TYPE_MS);
   }
 
   /** 画面ピクセル座標 → 正規化座標（円の半径・長方形の半辺を1とする、中心が原点）。
@@ -583,10 +380,12 @@ export class CircularCanvas {
   private hitTestMemo(p: Point): Memo | null {
     const threshold = HIT_THRESHOLD_PX / this.effectiveScale();
     for (const memo of this.store.getActive()) {
+      const offset = this.memoDisplayOffset(memo);
+      const localP = offset.x === 0 && offset.y === 0 ? p : { x: p.x - offset.x, y: p.y - offset.y };
       if (memo.kind === "stroke") {
-        if (pointNearStrokes(p, memo.strokes, threshold)) return memo;
+        if (pointNearStrokes(localP, memo.strokes, threshold)) return memo;
       } else if (
-        circleIntersectsBox(p, threshold, {
+        circleIntersectsBox(localP, threshold, {
           x: memo.x,
           y: memo.y,
           width: memo.boxWidth,
@@ -599,17 +398,29 @@ export class CircularCanvas {
     return null;
   }
 
+  private eraseAtPoint(p: Point): void {
+    this.state.lastPoint = p;
+    // ドラッグ中はeraserHoverPointを更新しない実装のままだと、指を離した瞬間
+    // （mode==="erasing"→"idle"、lastPoint=null）にプレビュー円がeraserHoverPoint
+    // 側へ切り替わり、そこがドラッグ開始前の古い位置のまま止まっていたため、
+    // 消し終えた場所から消し始めた位置へ一瞬戻って見えていた（ユーザー報告・
+    // 実機再現確認：カーソルを消してからは特に目立つ）。ドラッグ中も一緒に
+    // 更新しておくことで、離した直後も今の位置のまま途切れなく見えるようにする。
+    this.eraserHoverPoint = p;
+    this.ensureUndoSnapshot();
+    this.store.eraseAt(p, this.getToolState().eraserRadius / this.effectiveScale(), (m) =>
+      this.memoDisplayOffset(m)
+    );
+  }
+
   private onPointerDown = (ev: PointerEvent): void => {
     ev.preventDefault();
+    if (this.locked) return;
     // ピンチ中、または既に他の指が1本指ジェスチャーを進行させている間は、
     // 2本目以降の指をここでは扱わない——ピンチの検知・開始はキャンバスの
     // 外側も含めてonGlobalPointerDownがwindowレベルで一括して行う。
     if (this.state.mode === "pinching" || this.activePointerId !== null) return;
 
-    // 見た目の枠（円/楕円/長方形）の外側は、<canvas>要素自体はその外側まで矩形で
-    // 広がっているため座標としては拾えてしまう——クランプ前の生の座標で内外を
-    // 判定し、外側ならジェスチャーを始めずに無視する（issue: 円の外にpointerdown
-    // すると、toNormalizedのクランプで円周上の点として扱われ描画されてしまう）。
     const raw = this.toNormalizedRaw(ev.clientX, ev.clientY);
     if (!isInsideClamp(raw, this.inputClamp())) return;
 
@@ -637,12 +448,7 @@ export class CircularCanvas {
 
     if (tool === "eraser") {
       this.state.mode = "erasing";
-      this.state.lastPoint = p;
-      // eraserHoverPointも合わせて更新しておく（下のonPointerMoveの"erasing"
-      // 分岐と同じ理由——指を離した瞬間にrender()がこちらを参照し直すため）。
-      this.eraserHoverPoint = p;
-      this.ensureUndoSnapshot();
-      this.store.eraseAt(p, this.getToolState().eraserRadius / this.effectiveScale());
+      this.eraseAtPoint(p);
       return;
     }
 
@@ -662,7 +468,8 @@ export class CircularCanvas {
     if (tool === "text") {
       // 既存のテキストメモに触れた場合は編集を開く。
       if (hitMemo && hitMemo.kind === "text") {
-        this.openTextEditor({ x: hitMemo.x, y: hitMemo.y }, hitMemo);
+        const offset = this.memoDisplayOffset(hitMemo);
+        this.openTextEditor({ x: hitMemo.x + offset.x, y: hitMemo.y + offset.y }, hitMemo);
       } else {
         this.openTextEditor(p);
       }
@@ -676,17 +483,19 @@ export class CircularCanvas {
       this.store.startStroke(this.state.activeMemoId, p);
     } else {
       const { color, lineWidth } = this.getToolState();
-      const memo = this.store.createMemo(p, { tool: tool as "pen" | "marker", color, lineWidth }, this.nowProvider());
+      const memo = this.store.createMemo(
+        p,
+        { tool: tool as "pen" | "marker", color, lineWidth },
+        Date.now(),
+        this.frame.usableHalfExtents()
+      );
       this.state.activeMemoId = memo.id;
     }
     if (this.state.idleTimer !== null) window.clearTimeout(this.state.idleTimer);
   };
 
   /** ページのどこにタッチしても（キャンバス要素の外側でも）2本目の指を検知
-   *  できるよう、windowレベルですべてのpointerdownを監視する。今表示中の
-   *  インタラクティブなキャンバスだけが反応する——非表示のタブ・
-   *  interactive:falseのプレースホルダーは無視する（ユーザー指示：
-   *  「どこを2本指でしてもキャンバスのみをズームしたい」）。
+   *  できるよう、windowレベルですべてのpointerdownを監視する。
    *
    *  2本目の指が乗った瞬間にev.preventDefault()する——style.cssのtouch-action
    *  だけでは、iOS Safariでヘッダー/ツールバー（position:fixedの帯）の上だと
@@ -697,7 +506,7 @@ export class CircularCanvas {
    *  ボタン操作を妨げないため）。
    *
    *  ピンチズーム自体（beginPinch）は「選択」道具（move）を選んでいる時だけ
-   *  始める——ペン・マーカー・消しゴム・なぞる・テキストの間に指が2本乗っても
+   *  始める——ペン・マーカー・消しゴム・テキストの間に指が2本乗っても
    *  （誤って触れた・手のひらが触れた等）、進行中の描画等を中断してズームに
    *  切り替えてしまうのはユーザーにとって意図しない挙動のため（ユーザー指示）。
    *  ただしpreventDefault自体は道具に関わらず呼ぶ——ここで止めないと、
@@ -710,7 +519,6 @@ export class CircularCanvas {
    *  更新し続ける。有効性（tapGestureValid）の判定はonGlobalPointerMoveで、
    *  実際にundo/redoを呼ぶ判定はonGlobalPointerUpで行う。 */
   private onGlobalPointerDown = (ev: PointerEvent): void => {
-    if (!this.interactive) return;
     if (this.canvas.offsetParent === null) return; // 今表示中のタブのキャンバスでなければ無視
 
     const pos = { x: ev.clientX, y: ev.clientY };
@@ -746,7 +554,7 @@ export class CircularCanvas {
     const tracked = this.pinchPointers.get(ev.pointerId);
     if (!tracked) return;
     tracked.pos = { x: ev.clientX, y: ev.clientY };
-    if (pointerDistance(tracked.pos, tracked.downPos) > TAP_MAX_MOVEMENT_PX) {
+    if (distance(tracked.pos, tracked.downPos) > TAP_MAX_MOVEMENT_PX) {
       this.tapGestureValid = false;
     }
     if (this.pinchPointers.size >= 2) {
@@ -809,7 +617,7 @@ export class CircularCanvas {
     const [a, b] = [...this.pinchPointers.values()].map((p) => p.pos);
     this.state.mode = "pinching";
     this.pinch = {
-      startDist: pointerDistance(a, b),
+      startDist: distance(a, b),
       startZoom: this.viewZoom,
       startMid: pointerMidpoint(a, b),
       startPan: { ...this.viewPan },
@@ -821,7 +629,7 @@ export class CircularCanvas {
   private updatePinch(): void {
     if (!this.pinch || this.pinchPointers.size < 2) return;
     const [a, b] = [...this.pinchPointers.values()].map((p) => p.pos);
-    const dist = pointerDistance(a, b);
+    const dist = distance(a, b);
     const mid = pointerMidpoint(a, b);
     this.viewZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, this.pinch.startZoom * (dist / this.pinch.startDist)));
     const pan = {
@@ -829,7 +637,6 @@ export class CircularCanvas {
       y: this.pinch.startPan.y + (mid.y - this.pinch.startMid.y),
     };
     this.viewPan = this.viewZoom <= MIN_ZOOM ? { x: 0, y: 0 } : this.clampPan(pan);
-    this.syncEmptyStatePosition();
   }
 
   /** フレームが完全に画面外へ出てしまわないよう、パン量をズーム倍率に応じた範囲に
@@ -844,16 +651,13 @@ export class CircularCanvas {
    *  画面外まで遠く離れてしまい、円の内側の平らな部分しか見えず正方形の紙にしか
    *  見えなくなる不具合が発生したため復活させた（ユーザー報告・実機で再現確認）。 */
   private clampPan(pan: Point): Point {
-    const shape = this.frame.currentShape();
-    const maxOffsetX = this.frame.scale * shape.horizontalReach * (this.viewZoom - 1);
-    const maxOffsetY = this.frame.scale * (this.viewZoom - 1);
-    if (maxOffsetX <= 0 || maxOffsetY <= 0) return { x: 0, y: 0 };
-    const nx = pan.x / maxOffsetX;
-    const ny = pan.y / maxOffsetY;
-    const mag = Math.hypot(nx, ny);
-    if (mag <= 1) return pan;
-    const k = 1 / mag;
-    return { x: pan.x * k, y: pan.y * k };
+    const maxOffsetX = (this.frame.width / 2) * (this.viewZoom - 1);
+    const maxOffsetY = (this.frame.height / 2) * (this.viewZoom - 1);
+    if (maxOffsetX <= 0 && maxOffsetY <= 0) return { x: 0, y: 0 };
+    return {
+      x: Math.max(-maxOffsetX, Math.min(maxOffsetX, pan.x)),
+      y: Math.max(-maxOffsetY, Math.min(maxOffsetY, pan.y)),
+    };
   }
 
   /** 1本指ジェスチャー（描画・消しゴム・移動）の後始末。onPointerUpと
@@ -921,8 +725,7 @@ export class CircularCanvas {
     el.rows = 1;
     el.placeholder = "書き込む...";
     el.value = editingMemo?.text ?? initialText ?? "";
-    if (this.textEditorZIndex !== undefined) el.style.zIndex = String(this.textEditorZIndex);
-    el.style.color = color;
+    el.style.color = resolveInkColor(color);
     el.style.fontFamily = TEXT_FONT_FAMILY;
     // iOS Safari系は、フォーカスした入力欄のfont-sizeが16px未満だと「読みやすく
     // するため」勝手にページ全体をズームインする——これがタップ直後に画面が
@@ -1034,10 +837,7 @@ export class CircularCanvas {
       // ままだと空文字列の幅（≒0）で箱が測られてしまい、プレースホルダーが
       // 箱の中で折り返されてしまう（ユーザー報告）ため、空の間はプレースホルダー
       // 自体の幅で測る。
-      const boxWidthPx = Math.max(
-        toScreenPx(measureTextBoxWidthPx(this.ctx, el.value || el.placeholder, widthMeasureFontSize)),
-        this.textEditorMinWidthPx ?? 0
-      );
+      const boxWidthPx = toScreenPx(measureTextBoxWidthPx(this.ctx, el.value || el.placeholder, widthMeasureFontSize));
       el.style.width = `${boxWidthPx}px`;
       el.style.height = "auto";
       const h = el.scrollHeight;
@@ -1151,30 +951,31 @@ export class CircularCanvas {
       el.remove();
       if (cancelled) return; // Escapeでの取り消し：新規作成なら何もせず、編集なら元の内容のまま
 
-      if (editingMemo) {
-        if (!value) {
+      if (!value) {
+        if (editingMemo) {
           this.ensureUndoSnapshot();
           this.store.deleteMemo(editingMemo.id);
-          return;
         }
-        const boxWidthPx = measureTextBoxWidthPx(this.ctx, value, fontSize);
-        const lines = wrapTextAtReferenceScale(this.ctx, value, fontSize, boxWidthPx);
-        const { width, height } = normalizedBoxSize(fontSize, lines.length, boxWidthPx, lineHeight);
-        this.ensureUndoSnapshot();
+        return;
+      }
+
+      const boxWidthPx = measureTextBoxWidthPx(this.ctx, value, fontSize);
+      const lines = wrapTextAtReferenceScale(this.ctx, value, fontSize, boxWidthPx);
+      const { width, height } = normalizedBoxSize(fontSize, lines.length, boxWidthPx, lineHeight);
+      this.ensureUndoSnapshot();
+
+      if (editingMemo) {
+        const offset = this.memoDisplayOffset(editingMemo);
+        this.store.materializeDisplayOffset(editingMemo.id, offset.x, offset.y, this.frame.usableHalfExtents());
         this.store.updateTextMemo(editingMemo.id, value, lines, width, height);
         return;
       }
 
-      if (!value) return;
-      const boxWidthPx = measureTextBoxWidthPx(this.ctx, value, fontSize);
-      const lines = wrapTextAtReferenceScale(this.ctx, value, fontSize, boxWidthPx);
-      const { width, height } = normalizedBoxSize(fontSize, lines.length, boxWidthPx);
       // タップした場所をそのまま箱の中心にすると、境界に近い場所をタップした
       // 場合に箱の端が枠の外へはみ出して配置されてしまう（ユーザー指摘）。
       // 実際の文面から箱サイズが決まったこの時点で、箱全体が枠に収まる位置へ
       // 寄せてから確定する。
       const safeAnchor = clampBoxCenter(anchor, width / 2, height / 2, this.inputClamp());
-      this.ensureUndoSnapshot();
       this.store.createTextMemo(
         safeAnchor,
         value,
@@ -1183,7 +984,8 @@ export class CircularCanvas {
         width,
         height,
         { color },
-        this.nowProvider()
+        Date.now(),
+        this.frame.usableHalfExtents()
       );
     };
     el.addEventListener("blur", commit);
@@ -1257,19 +1059,20 @@ export class CircularCanvas {
     } else if (this.state.mode === "moving" && this.state.movingMemoId && this.state.lastPoint) {
       const dx = p.x - this.state.lastPoint.x;
       const dy = p.y - this.state.lastPoint.y;
-      this.store.translateMemo(this.state.movingMemoId, dx, dy, this.inputClamp());
-      this.state.lastPoint = p;
+      if (dx !== 0 || dy !== 0) {
+        if (!this.undoSnapshotTaken) {
+          this.ensureUndoSnapshot();
+          const movingMemo = this.store.getActive().find((m) => m.id === this.state.movingMemoId);
+          if (movingMemo) {
+            const offset = this.memoDisplayOffset(movingMemo);
+            this.store.materializeDisplayOffset(movingMemo.id, offset.x, offset.y, this.frame.usableHalfExtents());
+          }
+        }
+        this.store.translateMemo(this.state.movingMemoId, dx, dy, this.inputClamp());
+        this.state.lastPoint = p;
+      }
     } else if (this.state.mode === "erasing") {
-      this.state.lastPoint = p;
-      // ドラッグ中はeraserHoverPointを更新しない実装のままだと、指を離した瞬間
-      // （mode==="erasing"→"idle"、lastPoint=null）にプレビュー円がeraserHoverPoint
-      // 側へ切り替わり、そこがドラッグ開始前の古い位置のまま止まっていたため、
-      // 消し終えた場所から消し始めた位置へ一瞬戻って見えていた（ユーザー報告・
-      // 実機再現確認：カーソルを消してからは特に目立つ）。ドラッグ中も一緒に
-      // 更新しておくことで、離した直後も今の位置のまま途切れなく見えるようにする。
-      this.eraserHoverPoint = p;
-      this.ensureUndoSnapshot();
-      this.store.eraseAt(p, this.getToolState().eraserRadius / this.effectiveScale());
+      this.eraseAtPoint(p);
     }
   };
 
@@ -1325,6 +1128,7 @@ export class CircularCanvas {
    * 標準のundoを横取りしないよう素通りする。
    */
   private onGlobalKeyDown = (ev: KeyboardEvent): void => {
+    if (this.locked) return;
     if (this.textEditor || this.state.mode !== "idle") return;
     if (this.canvas.offsetParent === null) return; // 今表示中のタブのキャンバスでなければ無視
     const active = document.activeElement;
@@ -1348,15 +1152,6 @@ export class CircularCanvas {
     this.openTextEditor({ x: 0, y: 0 }, null, ev.key);
   };
 
-  /** モーダル等のcapture段で拾った文字を、このキャンバスの中央入力として開始する。 */
-  startTextInputAtCenter(initialText: string): void {
-    if (!this.interactive || this.textEditor || this.state.mode !== "idle" || initialText.length !== 1) {
-      return;
-    }
-    this.onAutoTextToolStart?.();
-    this.openTextEditor({ x: 0, y: 0 }, null, initialText);
-  }
-
   /** フィット(1倍)より拡大しているか。main.tsがヘッダー/ツールバー（画面全体に
    *  広がったキャンバスの上に固定オーバーレイとして乗る）を薄くするかどうかの
    *  判定に使う（ユーザー指示：ズーム中は下の絵が見えるよう薄くしたい）。 */
@@ -1372,87 +1167,94 @@ export class CircularCanvas {
     return this.textEditor?.classList.contains("text-editor-overlay--fixed-bottom") ?? false;
   }
 
-  /** 現在のフレームと殴り書きを、余白とロゴを含む正方形PNGへする。 */
-  async createExportImage(): Promise<Blob> {
-    this.finishTextEditingIfOpen();
+  private renderBackgroundTimer(
+    ctx: CanvasRenderingContext2D,
+    r: number,
+    dark: boolean,
+    isEmpty: boolean,
+    timerText: string
+  ): void {
+    const now = performance.now();
+    const targetAlpha = isEmpty ? (dark ? 0.28 : 0.24) : dark ? 0.14 : 0.12;
+    if (this.timerDisplayAlpha === null) {
+      this.timerDisplayAlpha = targetAlpha;
+    } else {
+      this.timerDisplayAlpha += (targetAlpha - this.timerDisplayAlpha) * 0.14;
+      if (Math.abs(targetAlpha - this.timerDisplayAlpha) < 0.001) {
+        this.timerDisplayAlpha = targetAlpha;
+      }
+    }
+    const baseAlpha = this.timerDisplayAlpha;
 
-    // 書き出しは閲覧中のズーム・パンやマウスカーソルに左右されない「作品」状態にする。
-    const previousZoom = this.viewZoom;
-    const previousPan = { ...this.viewPan };
-    const previousEraserHoverPoint = this.eraserHoverPoint;
-    this.viewZoom = MIN_ZOOM;
-    this.viewPan = { x: 0, y: 0 };
-    this.eraserHoverPoint = null;
+    if (this.prevTimerText !== null && this.prevTimerText !== timerText && this.prevTimerText.length === timerText.length) {
+      // "HH:MM:SS" の辞書順比較で、時間が増えている（08:00:00へ巻き戻っている）か減っているかを判定
+      const isRewind = timerText > this.prevTimerText;
+      const direction: 1 | -1 = isRewind ? 1 : -1;
+      const durationMs = isRewind ? 340 : 240;
 
-    // getImageData等が例外を投げた場合でも、上で退避した表示状態
-    // （ズーム・パン・ホバー表示）を必ず元に戻す——finallyが無いと、
-    // 書き出しの途中で失敗した時にMIN_ZOOM/(0,0)へ固定されたまま
-    // 戻らなくなる。
-    let output: HTMLCanvasElement;
-    try {
-      this.render();
+      while (this.timerSlotAnims.length < timerText.length) {
+        this.timerSlotAnims.push(null);
+      }
 
-      const source = this.canvas;
-      const sourceCtx = source.getContext("2d", { willReadFrequently: true })!;
-      const pixels = sourceCtx.getImageData(0, 0, source.width, source.height);
-      let minX = source.width;
-      let minY = source.height;
-      let maxX = -1;
-      let maxY = -1;
-      for (let y = 0; y < source.height; y += 1) {
-        for (let x = 0; x < source.width; x += 1) {
-          if (pixels.data[(y * source.width + x) * 4 + 3] === 0) continue;
-          minX = Math.min(minX, x);
-          minY = Math.min(minY, y);
-          maxX = Math.max(maxX, x);
-          maxY = Math.max(maxY, y);
+      for (let i = 0; i < timerText.length; i++) {
+        if (this.prevTimerText[i] !== timerText[i]) {
+          const existing = this.timerSlotAnims[i];
+          // 高速巻き戻し中で直前にも同じ桁が変化していた場合は、ロール途中の位相を保って連続回転に見せる
+          const isRapidSpin = existing !== null && existing !== undefined && now - existing.startTime < 90;
+          this.timerSlotAnims[i] = {
+            fromChar: this.prevTimerText[i],
+            toChar: timerText[i],
+            startTime: isRapidSpin ? now - 75 : now - 16,
+            durationMs,
+            direction,
+          };
         }
       }
-
-      output = document.createElement("canvas");
-      output.width = 1200;
-      output.height = 1200;
-      const ctx = output.getContext("2d")!;
-      ctx.fillStyle = "#f4f0e8";
-      ctx.fillRect(0, 0, output.width, output.height);
-
-      if (maxX >= minX && maxY >= minY) {
-        const cropWidth = maxX - minX + 1;
-        const cropHeight = maxY - minY + 1;
-        const availableWidth = 1056;
-        const availableHeight = 940;
-        const scale = Math.min(availableWidth / cropWidth, availableHeight / cropHeight);
-        const width = cropWidth * scale;
-        const height = cropHeight * scale;
-        ctx.drawImage(source, minX, minY, cropWidth, cropHeight, (1200 - width) / 2, 54 + (availableHeight - height) / 2, width, height);
-      }
-
-      ctx.fillStyle = "#302d29";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.font = '600 42px "Klee One", "Noto Sans JP", sans-serif';
-      ctx.fillText("円相", 600, 1080);
-    } finally {
-      this.viewZoom = previousZoom;
-      this.viewPan = previousPan;
-      this.eraserHoverPoint = previousEraserHoverPoint;
-      this.render();
     }
+    this.prevTimerText = timerText;
 
-    return new Promise<Blob>((resolve, reject) => {
-      output.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("画像の生成に失敗しました"))), "image/png");
-    });
-  }
+    ctx.save();
+    const timerFontPx = Math.max(22, Math.round(r * 0.105));
+    ctx.font = `300 ${timerFontPx}px "Cormorant Garamond", "Times New Roman", Georgia, serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
 
-  /** 手描き線は含めず、今あるアクティブな文字メモだけを空行で区切って返す。 */
-  getExportText(): string {
-    return this.store
-      .getActive()
-      .filter((memo) => memo.kind === "text")
-      .sort((a, b) => a.createdAt - b.createdAt)
-      .map((memo) => memo.text)
-      .filter((text) => text.trim().length > 0)
-      .join("\n\n");
+    const digitW = ctx.measureText("0").width;
+    const colonW = ctx.measureText(":").width;
+    const gap = timerFontPx * 0.06;
+    const widths = Array.from(timerText, (ch) => (ch === ":" ? colonW : digitW));
+    const totalW = widths.reduce((sum, w) => sum + w, 0) + gap * Math.max(0, widths.length - 1);
+    const slideDist = timerFontPx * 0.52;
+    const colorPrefix = dark ? "oklch(92% 0.006 75 / " : "oklch(22% 0.012 55 / ";
+
+    let x = -totalW / 2;
+    for (let i = 0; i < timerText.length; i++) {
+      const cx = x + widths[i] / 2;
+      x += widths[i] + gap;
+      const anim = this.timerSlotAnims[i];
+      if (anim) {
+        const rawT = Math.min(1, Math.max(0, (now - anim.startTime) / anim.durationMs));
+        if (rawT >= 1) {
+          this.timerSlotAnims[i] = null;
+          ctx.fillStyle = `${colorPrefix}${baseAlpha})`;
+          ctx.fillText(timerText[i], cx, 0);
+        } else {
+          const e = 1 - Math.pow(1 - rawT, 3);
+          const oldAlpha = baseAlpha * (1 - e);
+          const newAlpha = baseAlpha * e;
+          const oldY = anim.direction * e * slideDist;
+          const newY = -anim.direction * (1 - e) * slideDist;
+          ctx.fillStyle = `${colorPrefix}${oldAlpha})`;
+          ctx.fillText(anim.fromChar, cx, oldY);
+          ctx.fillStyle = `${colorPrefix}${newAlpha})`;
+          ctx.fillText(anim.toChar, cx, newY);
+        }
+      } else {
+        ctx.fillStyle = `${colorPrefix}${baseAlpha})`;
+        ctx.fillText(timerText[i], cx, 0);
+      }
+    }
+    ctx.restore();
   }
 
   render(): void {
@@ -1460,60 +1262,64 @@ export class CircularCanvas {
     const w = this.canvas.width;
     const h = this.canvas.height;
 
-    if (this.interactive) {
-      if (this.state.mode === "idle" && !this.pointerInsideFrame) {
-        // 横長ウィンドウでの円フレーム左右の余白等、<canvas>要素の範囲内だが
-        // 実際の輪郭の外側にマウスがある間は、描画/移動可能に見えるカーソルを
-        // 出さない（不具合報告：余白でもcrosshair/grabに変化してしまう）。
-        // 既にジェスチャーが始まっている場合(mode!=="idle")は、pointer capture
-        // により輪郭の外へ多少はみ出しても従来通りgrabbing等を保つ。
-        this.canvas.style.cursor = "default";
-      } else {
-        // 移動道具を選んでいる間はつかむ/つかんでいるカーソルにして、動かせることを示す。
-        // 消しゴムは当たり範囲そのものをプレビュー円で描いている（下のeraserCursorPoint
-        // 参照）ため、OS純正の十字カーソルを重ねて出さない——円だけで範囲が
-        // 分かるようにする（ユーザー指示）。
-        const tool = this.getToolState().tool;
-        this.canvas.style.cursor =
-          tool === "move"
-            ? this.state.mode === "moving"
-              ? "grabbing"
-              : "grab"
-            : tool === "eraser"
-              ? "none"
-              : tool === "none"
-                ? "default"
-                : "crosshair";
-      }
+    if (this.locked || (this.state.mode === "idle" && !this.pointerInsideFrame)) {
+      // 横長ウィンドウでの円フレーム左右の余白等、<canvas>要素の範囲内だが
+      // 実際の輪郭の外側にマウスがある間は、描画/移動可能に見えるカーソルを
+      // 出さない（不具合報告：余白でもcrosshair/grabに変化してしまう）。
+      // 既にジェスチャーが始まっている場合(mode!=="idle")は、pointer capture
+      // により輪郭の外へ多少はみ出しても従来通りgrabbing等を保つ。
+      this.canvas.style.cursor = "default";
+    } else {
+      // 移動道具を選んでいる間はつかむ/つかんでいるカーソルにして、動かせることを示す。
+      // 消しゴムは当たり範囲そのものをプレビュー円で描いている（下のeraserCursorPoint
+      // 参照）ため、OS純正の十字カーソルを重ねて出さない——円だけで範囲が
+      // 分かるようにする（ユーザー指示）。
+      const tool = this.getToolState().tool;
+      this.canvas.style.cursor =
+        tool === "move"
+          ? this.state.mode === "moving"
+            ? "grabbing"
+            : "grab"
+          : tool === "eraser"
+            ? "none"
+            : tool === "none"
+              ? "default"
+              : "crosshair";
     }
     ctx.save();
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.clearRect(0, 0, w / this.dpr, h / this.dpr);
+
+    const activeMemos = this.store.getActive();
+    this.frame.syncScaleForMemos(activeMemos);
+    const r = this.frame.scale;
+    const dark = isDarkThemeActive();
+
     ctx.translate(this.frame.centerPx.x + this.viewPan.x, this.frame.centerPx.y + this.viewPan.y);
     // ピンチズームの倍率をここで1回だけ適用する。以降の描画（メモのストローク・
-    // 罫線紙・フレームのクリップパス・グロー・消しゴムカーソル等）はすべて
-    // このtransformの上に乗るため、個々の描画コードは一切変更不要で自動的に
-    // ズームが反映される（`r = this.frame.scale`もこれまで通りでよい）。
+    // 罫線紙・グロー・消しゴムカーソル等）はすべてこのtransformの上に乗るため、
+    // 個々の描画コードは一切変更不要で自動的にズームが反映される。
     ctx.scale(this.viewZoom, this.viewZoom);
 
-    const shape = this.frame.currentShape();
-    const r = this.frame.scale;
-    const activeMemos = this.store.getActive();
+    const fillHalfW = (this.frame.width / 2 + Math.abs(this.viewPan.x)) / this.viewZoom;
+    const fillHalfH = (this.frame.height / 2 + Math.abs(this.viewPan.y)) / this.viewZoom;
+    drawRuledPaper(ctx, r, fillHalfW, fillHalfH);
 
-    // 枠線は撤去し、CSSのdrop-shadow（.circle-canvas、style.css）で紙の輪郭に
-    // 沿って浮かせる見た目に置き換えた（ユーザー指示）——ここでは紙以外
-    // 何も塗らない。枠の外にはみ出さないようクリップだけする。
-    ctx.save();
-    ctx.clip(this.frame.framePath);
-
-    // Oval/Squareはクリップ境界がradius基準の正方形より外まで張り出すため、
-    // 紙面もmaxReachぶん広めに塗る（クリップで結局切り取られるので広めに塗って
-    // 問題はない）——でないと丸眼鏡以外で、枠の内側なのに紙が届かず背景色が
-    // 透けて見える帯ができてしまう（ユーザー指摘）。
-    drawRuledPaper(ctx, r, r * shape.maxReach);
+    const timerText = this.getBackgroundTimerText?.();
+    if (timerText) {
+      this.renderBackgroundTimer(ctx, r, dark, activeMemos.length === 0, timerText);
+    }
 
     for (const memo of activeMemos) {
-      renderMemoAt(ctx, memo, r, 1, this.minRenderedTextFontPx);
+      const offset = this.memoDisplayOffset(memo);
+      if (offset.x !== 0 || offset.y !== 0) {
+        ctx.save();
+        ctx.translate(offset.x * r, offset.y * r);
+        renderMemoAt(ctx, memo, r, 1);
+        ctx.restore();
+      } else {
+        renderMemoAt(ctx, memo, r, 1);
+      }
     }
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = "source-over";
@@ -1521,7 +1327,13 @@ export class CircularCanvas {
     ctx.textBaseline = "alphabetic";
 
     if (this.state.mode === "moving" && this.state.lastPoint) {
-      drawRadialGlow(ctx, this.state.lastPoint.x * r, this.state.lastPoint.y * r, 22, TRACE_GLOW);
+      drawRadialGlow(
+        ctx,
+        this.state.lastPoint.x * r,
+        this.state.lastPoint.y * r,
+        22,
+        dark ? TRACE_GLOW_DARK : TRACE_GLOW
+      );
     }
 
     // 消しゴムの当たり範囲を示すカーソル。実際に消している最中はstate.lastPoint、
@@ -1534,55 +1346,32 @@ export class CircularCanvas {
       ctx.arc(p.x, p.y, this.getToolState().eraserRadius / this.viewZoom, 0, Math.PI * 2);
       ctx.fillStyle = ERASER_CURSOR_FILL;
       ctx.fill();
-      ctx.strokeStyle = ERASER_CURSOR;
+      ctx.strokeStyle = dark ? ERASER_CURSOR_DARK : ERASER_CURSOR;
       ctx.lineWidth = 1.2;
       ctx.stroke();
     }
 
-    ctx.restore(); // clip
-
-    if (this.interactive && activeMemos.length === 0) {
-      // 中心点（ここが書ける領域の中心、という目印）。文字の案内はDOM側
-      // （.canvas-empty-state、syncEmptyState参照）へ移したので、canvasに描くのは
-      // この点だけ。
-      ctx.beginPath();
-      ctx.arc(0, 0, 3, 0, Math.PI * 2);
-      ctx.fillStyle = CENTER_DOT;
-      ctx.fill();
-    }
-
     ctx.restore(); // translate + setTransform
-
-    // DOM側の案内（自由に書いてみる）の出し入れ。
-    this.syncEmptyState(activeMemos.length);
   }
 
   /** このインスタンスを使い終えたら呼ぶ。ResizeObserverと`window`に登録した
-   *  ポインタリスナーを解除する——これを呼ばずにcanvas要素だけDOMから外すと、
-   *  監視・リスナーがこのインスタンス（とstore等それが閉じ込めているもの）を
-   *  永久に参照し続けてしまう（SMUIの右レンズはルーム切替のたびに新しい
-   *  CircularCanvasへ差し替わるため、古い方を破棄せず放置するとリークする）。 */
+   *  ポインタリスナーを解除する。 */
   destroy(): void {
     this.resizeObserver.disconnect();
-    if (this.interactive) {
-      this.canvas.removeEventListener("pointerdown", this.onPointerDown);
-      this.canvas.removeEventListener("pointermove", this.onPointerMove);
-      this.canvas.removeEventListener("pointerleave", this.onPointerLeave);
-      window.removeEventListener("pointerup", this.onPointerUp);
-      window.removeEventListener("pointercancel", this.onPointerUp);
-      window.removeEventListener("keydown", this.onGlobalKeyDown);
-      window.removeEventListener("pointerdown", this.onGlobalPointerDown);
-      window.removeEventListener("pointermove", this.onGlobalPointerMove);
-      window.removeEventListener("pointerup", this.onGlobalPointerUp);
-      window.removeEventListener("pointercancel", this.onGlobalPointerUp);
-      window.visualViewport?.removeEventListener("resize", this.onVisualViewportChange);
-      window.visualViewport?.removeEventListener("scroll", this.onVisualViewportChange);
-    }
+    this.canvas.removeEventListener("pointerdown", this.onPointerDown);
+    this.canvas.removeEventListener("pointermove", this.onPointerMove);
+    this.canvas.removeEventListener("pointerleave", this.onPointerLeave);
+    window.removeEventListener("pointerup", this.onPointerUp);
+    window.removeEventListener("pointercancel", this.onPointerUp);
+    window.removeEventListener("keydown", this.onGlobalKeyDown);
+    window.removeEventListener("pointerdown", this.onGlobalPointerDown);
+    window.removeEventListener("pointermove", this.onGlobalPointerMove);
+    window.removeEventListener("pointerup", this.onGlobalPointerUp);
+    window.removeEventListener("pointercancel", this.onGlobalPointerUp);
+    window.visualViewport?.removeEventListener("resize", this.onVisualViewportChange);
+    window.visualViewport?.removeEventListener("scroll", this.onVisualViewportChange);
     this.textEditor?.remove();
     this.restoreBodyScroll?.();
-    this.stopEmptyStateHintRotation();
-    this.emptyStateEl?.remove();
-    this.container.classList.remove("canvas-host");
     this.canvas.remove();
   }
 }

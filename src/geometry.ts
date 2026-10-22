@@ -1,4 +1,4 @@
-import type { Point, Stroke } from "./types";
+import type { Memo, Point, Stroke } from "./types";
 
 export function distance(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
@@ -105,12 +105,8 @@ export function restrictTranslation(
 ): { dx: number; dy: number } {
   if (dx === 0 && dy === 0) return { dx: 0, dy: 0 };
 
-  const isInside = (p: Point): boolean => {
-    const clamped = clamp(p);
-    return clamped.x === p.x && clamped.y === p.y;
-  };
   const fits = (t: number): boolean =>
-    points.every((p) => isInside({ x: p.x + dx * t, y: p.y + dy * t }));
+    points.every((p) => isInsideClamp({ x: p.x + dx * t, y: p.y + dy * t }, clamp));
 
   if (fits(1)) return { dx, dy };
   if (!fits(0)) return { dx: 0, dy: 0 };
@@ -123,6 +119,16 @@ export function restrictTranslation(
     else hi = mid;
   }
   return { dx: dx * lo, dy: dy * lo };
+}
+
+/** 中心center・半幅halfWidth・半高halfHeightの矩形の四隅の座標を返す。 */
+export function boxCorners(center: Point, halfWidth: number, halfHeight: number): Point[] {
+  return [
+    { x: center.x - halfWidth, y: center.y - halfHeight },
+    { x: center.x + halfWidth, y: center.y - halfHeight },
+    { x: center.x - halfWidth, y: center.y + halfHeight },
+    { x: center.x + halfWidth, y: center.y + halfHeight },
+  ];
 }
 
 /**
@@ -143,12 +149,7 @@ export function clampBoxCenter(
   halfHeight: number,
   clamp: (p: Point) => Point
 ): Point {
-  const cornersAtOrigin: Point[] = [
-    { x: -halfWidth, y: -halfHeight },
-    { x: halfWidth, y: -halfHeight },
-    { x: -halfWidth, y: halfHeight },
-    { x: halfWidth, y: halfHeight },
-  ];
+  const cornersAtOrigin = boxCorners({ x: 0, y: 0 }, halfWidth, halfHeight);
   const { dx, dy } = restrictTranslation(cornersAtOrigin, desired.x, desired.y, clamp);
   return { x: dx, y: dy };
 }
@@ -174,4 +175,119 @@ export function eraseFromStroke(stroke: Stroke, center: Point, radius: number): 
   }
   if (current.length >= 2) segments.push(current);
   return segments;
+}
+
+/**
+ * 矩形領域（原点中心、半幅halfW・半高halfH）の内側に点を丸め込む。
+ * 画面全体をキャンバスとする表示でのビューポート境界クランプに使う。
+ */
+export function clampToRect(p: Point, halfW: number, halfH: number): Point {
+  const w = Math.max(0, halfW);
+  const h = Math.max(0, halfH);
+  return {
+    x: Math.max(-w, Math.min(w, p.x)),
+    y: Math.max(-h, Math.min(h, p.y)),
+  };
+}
+
+/**
+ * メモ（手描き・テキスト）の基準座標系における外接矩形の中心(cx, cy)と
+ * 半幅・半高(halfW, halfH)を返す。
+ */
+export function memoBounds(memo: Memo): { cx: number; cy: number; halfW: number; halfH: number } {
+  if (memo.kind === "text") {
+    return {
+      cx: memo.x,
+      cy: memo.y,
+      halfW: memo.boxWidth / 2,
+      halfH: memo.boxHeight / 2,
+    };
+  }
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const stroke of memo.strokes) {
+    for (const p of stroke) {
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    }
+  }
+  if (!Number.isFinite(minX)) {
+    return { cx: memo.x, cy: memo.y, halfW: 0, halfH: 0 };
+  }
+  return {
+    cx: (minX + maxX) / 2,
+    cy: (minY + maxY) / 2,
+    halfW: (maxX - minX) / 2,
+    halfH: (maxY - minY) / 2,
+  };
+}
+
+/**
+ * ウィンドウサイズに応じた基準スケール（baseScale）に対し、単一のメモ自体が
+ * 画面幅・高さを超えるほど大きい場合でも画面内に収まるようスケールを調整する。
+ * ウィンドウが再び大きくなればbaseScale側へ戻る。
+ */
+export function computeResponsiveScale(
+  baseScale: number,
+  widthPx: number,
+  heightPx: number,
+  memos: readonly Memo[]
+): number {
+  if (!(baseScale > 0) || !(widthPx > 0) || !(heightPx > 0)) return baseScale;
+  let maxSpanX = 0;
+  let maxSpanY = 0;
+  for (const memo of memos) {
+    if (memo.status !== "active") continue;
+    const { halfW, halfH } = memoBounds(memo);
+    if (halfW * 2 > maxSpanX) maxSpanX = halfW * 2;
+    if (halfH * 2 > maxSpanY) maxSpanY = halfH * 2;
+  }
+  let scale = baseScale;
+  if (maxSpanX > 0) {
+    scale = Math.min(scale, (widthPx * 0.92) / maxSpanX);
+  }
+  if (maxSpanY > 0) {
+    scale = Math.min(scale, (heightPx * 0.92) / maxSpanY);
+  }
+  return Math.max(40, scale);
+}
+
+/**
+ * 広いウィンドウで配置されたメモを、より狭いウィンドウ（有効半幅usableHalfW・
+ * 有効半高usableHalfH）で表示する際の平行移動オフセット(dx, dy)を返す。
+ *
+ * - メモ自体の形（手描きの縦横比やテキストの折り返し）は一切歪めず、中心位置だけを
+ *   ビューポートの縮小率に合わせて内側へ引き寄せる。
+ * - 外接矩形の端がビューポート外へはみ出さないよう[-limitX, limitX]×[-limitY, limitY]へ収める。
+ * - ウィンドウを再び広げればratioX/ratioYが1へ戻り、オフセット(0, 0)＝元の広い配置に戻る。
+ */
+export function computeMemoDisplayOffset(
+  memo: Memo,
+  usableHalfW: number,
+  usableHalfH: number
+): Point {
+  if (!(usableHalfW > 0) || !(usableHalfH > 0)) return { x: 0, y: 0 };
+  const { cx, cy, halfW, halfH } = memoBounds(memo);
+  const refW = Math.max(memo.originHalfW ?? 1, Math.abs(cx) + halfW);
+  const refH = Math.max(memo.originHalfH ?? 1, Math.abs(cy) + halfH);
+
+  const ratioX = refW > 0 ? Math.min(1, usableHalfW / refW) : 1;
+  const ratioY = refH > 0 ? Math.min(1, usableHalfH / refH) : 1;
+
+  const limitX = Math.max(0, usableHalfW - halfW);
+  const limitY = Math.max(0, usableHalfH - halfH);
+
+  const targetCx = Math.max(-limitX, Math.min(limitX, cx * ratioX));
+  const targetCy = Math.max(-limitY, Math.min(limitY, cy * ratioY));
+
+  const dx = targetCx - cx;
+  const dy = targetCy - cy;
+  return {
+    x: Math.abs(dx) < 1e-9 ? 0 : dx,
+    y: Math.abs(dy) < 1e-9 ? 0 : dy,
+  };
 }
