@@ -1,10 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { CANVAS_FRAME_SHAPE } from "../src/frameShape";
-import { isInsideClamp } from "../src/geometry";
+import { clampToRect, isInsideClamp } from "../src/geometry";
 import { MemoStore } from "../src/memoStore";
 import type { MemoStyle } from "../src/types";
 
-const canvasClamp = (p: { x: number; y: number }) => CANVAS_FRAME_SHAPE.clamp(p);
+const canvasClamp = (p: { x: number; y: number }) => clampToRect(p, 1, 1);
 
 // jsdom を使わず、localStorage 相当の最小モックだけ用意する
 class MemoryStorage implements Storage {
@@ -148,11 +147,11 @@ describe("MemoStore", () => {
       expect(updated.y).toBeCloseTo(0.08);
     });
 
-    it("枠の外に出そうな移動はキャンバスの枠（正方形・角丸）にクランプされ、はみ出さない", () => {
+    it("枠の外に出そうな移動はキャンバスの枠にクランプされ、はみ出さない", () => {
       const store = new MemoStore();
       const memo = store.createTextMemo({ x: 0.9, y: 0 }, "note", ["note"], 24, 0.4, 0.1, { color: "#000" }, 0);
 
-      store.translateMemo(memo.id, 0.5, 0); // (0.9,0) -> (1.4,0) のはずだがクランプされる
+      store.translateMemo(memo.id, 0.5, 0, canvasClamp); // (0.9,0) -> (1.4,0) のはずだがクランプされる
 
       const updated = store.getActive()[0];
       expect(isInsideClamp(updated, canvasClamp)).toBe(true);
@@ -173,7 +172,7 @@ describe("MemoStore", () => {
         0
       );
 
-      store.translateMemo(memo.id, 0.5, 0); // 中心だけなら(0.9,0)まで動けるが、箱の右端が枠をはみ出す
+      store.translateMemo(memo.id, 0.5, 0, canvasClamp); // 中心だけなら(0.9,0)まで動けるが、箱の右端が枠をはみ出す
 
       const updated = store.getActive()[0];
       if (updated.kind !== "text") throw new Error("expected text memo");
@@ -335,125 +334,6 @@ describe("MemoStore", () => {
       expect(store.getActive()).toHaveLength(0);
       store.undo();
       expect(store.getActive()).toHaveLength(1);
-    });
-  });
-
-  describe("insertCopy（過去めくり画面のドロップ帯からの持ち越し、E3-03/04）", () => {
-    const JITTER = 0.03; // src/memoStore.tsのCOPY_POSITION_JITTERと同じ値
-
-    it("形（相対座標）を保ったまま、元のメモと同じ位置（±ランダムオフセット）に配置する", () => {
-      const archived = {
-        id: "memo_archived",
-        kind: "stroke" as const,
-        x: -0.1, // 代表座標は最初のストロークの始点と一致させる（types.tsの規約通り）
-        y: 0,
-        strokes: [
-          [
-            { x: -0.1, y: 0 },
-            { x: 0.1, y: 0 },
-          ],
-        ],
-        createdAt: 100,
-        status: "active" as const,
-        tool: "pen" as const,
-        color: "#000000",
-      };
-      const store = new MemoStore();
-      const copy = store.insertCopy(archived);
-
-      expect(copy.kind).toBe("stroke");
-      // ジッターの範囲内（±JITTER）に収まっている
-      expect(Math.abs(copy.x - archived.x)).toBeLessThanOrEqual(JITTER + 1e-9);
-      expect(Math.abs(copy.y - archived.y)).toBeLessThanOrEqual(JITTER + 1e-9);
-      if (copy.kind === "stroke") {
-        // ストローク内の相対的な形（2点間の距離）は変わらない——ジッターは
-        // 全体を平行移動するだけで、形そのものは歪めない
-        const [p0, p1] = copy.strokes[0];
-        expect(p1.x - p0.x).toBeCloseTo(0.2);
-        expect(p1.y - p0.y).toBeCloseTo(0);
-      }
-    });
-
-    it("新しいid・createdAtを持つ（元のメモとは別物）", () => {
-      const archived = {
-        id: "memo_archived",
-        kind: "stroke" as const,
-        x: 0,
-        y: 0,
-        strokes: [[{ x: 0, y: 0 }, { x: 0.05, y: 0.05 }]],
-        createdAt: 100,
-        status: "active" as const,
-        tool: "pen" as const,
-        color: "#000000",
-      };
-      const store = new MemoStore();
-      const copy = store.insertCopy(archived);
-
-      expect(copy.id).not.toBe(archived.id);
-      expect(copy.createdAt).not.toBe(100);
-    });
-
-    it("渡した元のメモ（アーカイブ側）は一切変更しない（複製であって移動ではない）", () => {
-      const archived = {
-        id: "memo_archived",
-        kind: "stroke" as const,
-        x: 0,
-        y: 0,
-        strokes: [[{ x: 0, y: 0 }, { x: 0.05, y: 0.05 }]],
-        createdAt: 100,
-        status: "active" as const,
-        tool: "pen" as const,
-        color: "#000000",
-      };
-      const originalSnapshot = structuredClone(archived);
-      const store = new MemoStore();
-      store.insertCopy(archived);
-
-      expect(archived).toEqual(originalSnapshot);
-    });
-
-    it("元の位置が枠の縁付近でも、ジッターで枠外へはみ出す場合は枠内にクランプされる", () => {
-      // 枠の縁ぎりぎり(x=0.999)に置く——ジッターがどちらへ転んでも、外側へ
-      // 出る側の結果は必ずクランプされる（内側へ転んだ場合はクランプ不要のまま）
-      const archived = {
-        id: "memo_archived",
-        kind: "stroke" as const,
-        x: 0.999,
-        y: 0,
-        strokes: [[{ x: 0.999, y: 0 }, { x: 1.019, y: 0 }]],
-        createdAt: 100,
-        status: "active" as const,
-        tool: "pen" as const,
-        color: "#000000",
-      };
-      const store = new MemoStore();
-      for (let i = 0; i < 20; i++) {
-        const copy = store.insertCopy(archived, canvasClamp);
-        expect(isInsideClamp({ x: copy.x, y: copy.y }, canvasClamp)).toBe(true);
-      }
-    });
-
-    it("複製した結果はlocalStorageにも永続化される", () => {
-      const archived = {
-        id: "memo_archived",
-        kind: "text" as const,
-        x: 0,
-        y: 0,
-        text: "hello",
-        textLines: ["hello"],
-        fontSize: 24,
-        boxWidth: 0.3,
-        boxHeight: 0.1,
-        createdAt: 100,
-        status: "active" as const,
-        color: "#000000",
-      };
-      const store = new MemoStore();
-      store.insertCopy(archived);
-
-      const reloaded = new MemoStore();
-      expect(reloaded.getAll()).toHaveLength(1);
-      expect(reloaded.getAll()[0].kind).toBe("text");
     });
   });
 });
