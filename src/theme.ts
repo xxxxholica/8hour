@@ -29,13 +29,21 @@ export function isDarkThemeActive(): boolean {
   return typeof window !== "undefined" && (window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false);
 }
 
+/** ダークモードの暗い紙の上で、ペンの赤・青のままだとコントラストが低い（約2.3〜2.5）
+ *  ため、同じ色相のまま明るくした色に置き換える（コントラストは約6）。キーはツール
+ *  バーのペンのプリセット色（toolbar.ts PEN_PRESET_INKS）。 */
+const DARK_INK_ALTERNATES: Record<string, string> = {
+  "oklch(52% 0.2 25)": "oklch(72% 0.17 25)",
+  "oklch(48% 0.16 258)": "oklch(72% 0.13 258)",
+};
+
 /** 既定の黒インク（DEFAULT_LIGHT_INK等）で書かれた線・文字を、ダークモード時には
- *  白系インクへ自動変換して暗い紙の上でも視認性を保つ。赤・青・マーカー等の
- *  有彩色はどちらのモードでもそのままの色で描画する。 */
+ *  白系インクへ自動変換して暗い紙の上でも視認性を保つ。ペンの赤・青は明るい
+ *  同系色（DARK_INK_ALTERNATES）に、マーカー等のその他の色はそのままの色で描画する。 */
 export function resolveInkColor(color: string, dark: boolean = isDarkThemeActive()): string {
   if (!dark) return color;
   if (color === DEFAULT_LIGHT_INK || color === "#2f2a26" || color === "#000000" || color === "#000") {
     return DEFAULT_DARK_INK;
   }
-  return color;
+  return DARK_INK_ALTERNATES[color] ?? color;
 }

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   circleIntersectsBox,
-  clampBoxCenter,
   clampToRect,
   clampToRoundedRect,
   computeMemoDisplayOffset,
@@ -33,39 +32,6 @@ describe("clampToRoundedRect（キャンバスの枠：正方形・角丸）", (
     expect(isInsideClamp(p, roundedClamp)).toBe(true);
     // 角の中心(0.7, 0.7)からの距離がちょうどcornerRadius(0.3)になる。
     expect(Math.hypot(p.x - 0.7, p.y - 0.7)).toBeCloseTo(0.3);
-  });
-});
-
-describe("clampBoxCenter（テキストメモを新規に置く瞬間、箱の端が枠外に出ないようにする）", () => {
-  const roundedClamp = (p: { x: number; y: number }) => clampToRoundedRect(p, 1, 0.3);
-
-  it("箱が完全に収まる位置ならそのまま", () => {
-    const p = clampBoxCenter({ x: 0.2, y: 0.1 }, 0.2, 0.05, roundedClamp);
-    expect(p).toEqual({ x: 0.2, y: 0.1 });
-  });
-
-  it("境界近くをタップすると、箱の四隅すべてが境界内に収まる位置まで中心が引き寄せられる", () => {
-    const halfW = 0.2;
-    const halfH = 0.05;
-    const p = clampBoxCenter({ x: 0.95, y: 0 }, halfW, halfH, roundedClamp);
-
-    const corners = [
-      { x: p.x - halfW, y: p.y - halfH },
-      { x: p.x + halfW, y: p.y - halfH },
-      { x: p.x - halfW, y: p.y + halfH },
-      { x: p.x + halfW, y: p.y + halfH },
-    ];
-    for (const c of corners) {
-      expect(isInsideClamp(c, roundedClamp)).toBe(true);
-    }
-    // 中心点だけをクランプする従来の実装ならx=0.95のまま(タップ位置をそのまま採用)
-    // になってしまうため、箱の端を考慮してそれより手前に寄ることを確認する。
-    expect(p.x).toBeLessThan(0.95);
-  });
-
-  it("原点に置いても収まりきらないほど巨大な箱は、原点（最善位置）に置かれる", () => {
-    const p = clampBoxCenter({ x: 0.5, y: 0.5 }, 5, 5, roundedClamp);
-    expect(p).toEqual({ x: 0, y: 0 });
   });
 });
 
@@ -233,5 +199,27 @@ describe("clampToRect / computeMemoDisplayOffset / computeResponsiveScale（全�
     // 広い画面幅（widthPx=1200, baseScale=200）になれば元のbaseScale(200)に戻る
     const wideScale = computeResponsiveScale(200, 1200, 800, [wideStrokeMemo]);
     expect(wideScale).toBe(200);
+  });
+
+  it("computeResponsiveScaleは行モードの長文テキストでスケールが170未満に極小化しない", () => {
+    const tallLineMemo: TextMemo = {
+      id: "t1",
+      kind: "text",
+      x: 0,
+      y: 0,
+      text: "a\n".repeat(100),
+      textLines: Array.from({ length: 100 }, () => "a"),
+      fontSize: 24,
+      boxWidth: 0.5,
+      boxHeight: 10.0,
+      createdAt: 1,
+      status: "active",
+      color: "oklch(22% 0.012 55)",
+      align: "left",
+      lineHeight: 1.4,
+      layout: "line",
+    };
+    const scale = computeResponsiveScale(300, 1200, 800, [tallLineMemo]);
+    expect(scale).toBe(170);
   });
 });

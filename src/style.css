@@ -361,21 +361,68 @@ body {
   resize: none;
   overflow: hidden;
   box-sizing: border-box;
-  padding: var(--space-1) 0.375rem;
-  border: 1px dashed var(--ink-35);
-  border-radius: 6px;
-  background: color-mix(in oklch, var(--paper-1) 90%, transparent);
-  text-align: center;
+  /* 紙の上へそのまま書き込む見た目。枠・余白・背景を無くし、確定後のcanvas描画
+     （左揃え・行グリッド）と重なるようにする。文字色はインラインstyleで指定される。 */
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
   outline: none;
+  /* 折り返しの規則をcanvas側のwrapParagraphs（1文字ずつ詰める）に合わせ、編集中と
+     確定後で改行位置が変わらないようにする。禁則処理で意図しない位置で
+     折り返さない。 */
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-break: anywhere;
+  overflow-wrap: anywhere;
 }
 
-/* モバイル（issue #87：pointer:coarseでキーボード直上に固定表示する分岐、
-   canvasView.ts openTextEditor参照）専用の見た目。 */
-.text-editor-overlay--fixed-bottom {
-  border: 1px solid var(--ink-12);
-  border-radius: var(--radius-lg);
+/* モバイルの行モード編集中にキーボード直上へ出すアイコンツールバー
+   （canvasView.ts buildTextEditorToolbar）。位置と幅はJSがvisualViewportに
+   合わせて設定する。右端の✓（確定）だけ右寄せにして、押し間違えにくくする。 */
+.text-editor-toolbar {
+  position: fixed;
+  z-index: 21;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  box-sizing: border-box;
+  padding: 0.25rem 0.5rem;
+  border-top: 1px solid var(--ink-12);
   background: var(--paper-1);
-  box-shadow: var(--shadow-card);
+  touch-action: manipulation;
+}
+
+.text-editor-toolbar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.75rem;
+  height: 2.5rem;
+  padding: 0 0.5rem;
+  border: none;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--ink-70);
+  font: inherit;
+  font-size: 1.125rem;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.text-editor-toolbar-btn svg {
+  width: 1.375rem;
+  height: 1.375rem;
+}
+
+.text-editor-toolbar-btn:active {
+  background: var(--ink-12);
+}
+
+.text-editor-toolbar-btn--done {
+  margin-left: auto;
+  color: var(--ink-95);
 }
 
 .text-editor-overlay::placeholder {
@@ -428,20 +475,6 @@ body {
   opacity: 0.4;
 }
 
-/* --- モバイルでキーボード直上に固定表示される入力欄（issue #87、
-   canvasView.isEditingTextFixedBottom()/smuiView.isEditingTextFixedBottom()
-   参照）は、.text-editor-overlay--fixed-bottomとして不透明なカードで
-   ツールバーとほぼ同じ場所に重なって表示される。上のis-zoomedのような
-   半透明の薄がけだと、カードの外側からツールバーの一部だけ透けて中途半端に
-   見えてしまうため、この間はツールバーごと完全に隠す（操作もできなくする）
-   ——「今は入力に集中するモード」であることを見た目からも明確にする
-   （ユーザー指示）。.app-footerに既にあるtransition: opacityでフェード
-   イン・アウトする。 --- */
-#app.is-editing-text-mobile .app-footer {
-  opacity: 0;
-  pointer-events: none;
-}
-
 /* --- 下部のツールバー。色スワッチ（.panel-swatches）とは別の、独立した
    浮いたカード（角丸・枠線・背景・影を自分自身で持つ）にする——一時期
    両者を1枚の連続パネルにまとめていたが、それぞれ独立した見た目に戻す
@@ -462,9 +495,9 @@ body {
   align-items: stretch;
   border-radius: var(--radius-full);
   border: none;
-  background: color-mix(in oklch, var(--paper-canvas) 84%, transparent);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  /* 背景なし（ユーザー指示）：道具バー・カラーバー・右上のダークモード切替は、
+     紙の上にそのままボタンだけを浮かべる。 */
+  background: none;
   box-shadow: none;
   pointer-events: auto;
 }
@@ -519,9 +552,9 @@ body {
   padding: 0.5rem 0.875rem;
   border-radius: var(--radius-full);
   border: none;
-  background: color-mix(in oklch, var(--paper-canvas) 84%, transparent);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  /* 背景なし（ユーザー指示）：道具バー・カラーバー・右上のダークモード切替は、
+     紙の上にそのままボタンだけを浮かべる。 */
+  background: none;
   box-shadow: none;
   opacity: 1;
   pointer-events: auto;
@@ -556,9 +589,9 @@ body {
   padding: 0.375rem 0.5rem;
   border-radius: var(--radius-full);
   border: none;
-  background: color-mix(in oklch, var(--paper-canvas) 84%, transparent);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  /* 背景なし（ユーザー指示）：道具バー・カラーバー・右上のダークモード切替は、
+     紙の上にそのままボタンだけを浮かべる。 */
+  background: none;
   box-shadow: none;
   pointer-events: auto;
 }
@@ -581,10 +614,6 @@ body {
   display: flex;
   align-items: center;
   gap: 0.125rem;
-}
-
-.record-grid-trigger-btn {
-  flex: none;
 }
 
 /* --- 道具バー：道具アイコンを1列（.toolbar-pill）に、すべて同じ大きさ
@@ -634,14 +663,6 @@ body {
 
 .fade-visible.is-visible {
   opacity: 1;
-}
-
-/* --- テンプレートボタンとその上に浮くメニューの基準位置。ボタン自体は道具の並び
-   （.toolbar-pill）の一員として常に表示したままにし、押すとメニューだけが上に出る。 --- */
-.icon-anchor {
-  position: relative;
-  display: flex;
-  align-items: center;
 }
 
 /* --- アイコンボタンの上に開くポップアップの共通の見た目・アニメーション。 --- */
@@ -773,110 +794,6 @@ body {
   cursor: default;
 }
 
-/* 4つ目（好きな色）のスワッチ。まだ一度も選んでいない間は虹色のグラデーションで
-   「好きな色を選べる」ことを示す——一度選ぶとtoolbar.tsがインラインstyleで
-   その色を背景に敷くので、このグラデーションは自然に隠れる（インラインstyleが
-   クラス由来のbackgroundより優先されるため、JS側でクラスを付け替える必要が無い）。 */
-.toolbar-swatch--custom {
-  background: conic-gradient(
-    from 0deg,
-    oklch(60% 0.2 25),
-    oklch(75% 0.18 100),
-    oklch(65% 0.19 145),
-    oklch(55% 0.14 230),
-    oklch(50% 0.2 300),
-    oklch(60% 0.2 25)
-  );
-}
-
-/* --- 「好きな色」ポップオーバー（toolbar.ts）。ネイティブの<input type="color">
-   をやめ、テーマのカラーパレット（settingsMenu.ts）と同じ自前描画の色相
-   スライダーを.icon-popoverの中に置いたもの——ネイティブUIはCSSの
-   transitionが一切効かず開閉を徐々に見せられなかった（ユーザー指示）ため。
-   位置は既定の.icon-popover（トリガー中心・上向き）のまま——トリガー（好きな
-   色スワッチ）は下部パネル上段の中央寄りにあるため、独自のleft/right/
-   transformは持たせない。背景は設定メニュー（.settings-popover）と同じ理由で
-   少し透かす（ユーザー指示：85%くらい）。 --- */
-.toolbar-custom-color-popover {
-  min-width: 10rem;
-  padding: 0.625rem 0.875rem;
-  left: auto;
-  right: 0;
-  transform: translateY(6px);
-  background: color-mix(in oklch, var(--paper-1) 85%, transparent);
-  backdrop-filter: blur(6px);
-}
-
-.toolbar-custom-color-popover.is-visible {
-  transform: translateY(0);
-}
-
-/* --- テーマの「好きな色を選ぶ」カラーパレット（settingsMenu.ts、issue #138）。
-   ネイティブの<input type="color">（RGB数値等が出てくる）ではなく、Chromeの
-   テーマ設定と同じ横1本の色相グラデーションバー（ユーザー指示）——素の
-   <input type="range">に虹色のグラデーショントラックを描くだけで、ドラッグ・
-   タップ・キーボード操作がそのまま使える。appearance:noneのtrack+thumbで
-   組み立て、trackの背景を色相環のグラデーションにしている。 --- */
-.theme-hue-slider {
-  appearance: none;
-  width: 100%;
-  min-width: 7.5rem;
-  height: 1.25rem;
-  margin: var(--space-1) 0 0;
-  background: transparent;
-  cursor: pointer;
-}
-
-.theme-hue-slider::-webkit-slider-runnable-track {
-  height: 0.625rem;
-  border-radius: var(--radius-full);
-  background: linear-gradient(
-    to right,
-    oklch(75% 0.15 0),
-    oklch(75% 0.15 60),
-    oklch(75% 0.15 120),
-    oklch(75% 0.15 180),
-    oklch(75% 0.15 240),
-    oklch(75% 0.15 300),
-    oklch(75% 0.15 360)
-  );
-}
-
-.theme-hue-slider::-moz-range-track {
-  height: 0.625rem;
-  border-radius: var(--radius-full);
-  background: linear-gradient(
-    to right,
-    oklch(75% 0.15 0),
-    oklch(75% 0.15 60),
-    oklch(75% 0.15 120),
-    oklch(75% 0.15 180),
-    oklch(75% 0.15 240),
-    oklch(75% 0.15 300),
-    oklch(75% 0.15 360)
-  );
-}
-
-.theme-hue-slider::-webkit-slider-thumb {
-  appearance: none;
-  width: 1.25rem;
-  height: 1.25rem;
-  margin-top: -0.3125rem;
-  border-radius: 50%;
-  background: var(--paper-1);
-  border: 2px solid var(--ink-solid);
-  box-shadow: 0 1px 3px var(--ink-20);
-}
-
-.theme-hue-slider::-moz-range-thumb {
-  width: 1.25rem;
-  height: 1.25rem;
-  border-radius: 50%;
-  background: var(--paper-1);
-  border: 2px solid var(--ink-solid);
-  box-shadow: 0 1px 3px var(--ink-20);
-}
-
 /* --- 小さい画面（スマホ等）：下部中央にツールバー、左上にカラーバーを配置 --- */
 @media (max-width: 600px) {
   .control-panel {
@@ -911,18 +828,6 @@ body {
     margin-left: 0;
     min-height: 3.125rem;
     padding: 0.375rem 0.75rem;
-  }
-
-  .toolbar-custom-color-popover {
-    top: 100%;
-    bottom: auto;
-    margin-top: 0.625rem;
-    margin-bottom: 0;
-    transform: translateY(-6px);
-  }
-
-  .toolbar-custom-color-popover.is-visible {
-    transform: translateY(0);
   }
 
   #app {

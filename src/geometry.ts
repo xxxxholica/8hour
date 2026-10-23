@@ -132,29 +132,6 @@ export function boxCorners(center: Point, halfWidth: number, halfHeight: number)
 }
 
 /**
- * 矩形（半径halfW×halfHの箱）を境界内に置けるよう、中心点desiredを調整する。
- * テキストメモを新規に置く瞬間（タップした場所の直後）に使う——タップ位置
- * そのものを箱の中心にすると、境界に近い場所をタップした場合に箱の端が
- * はみ出してしまう（ユーザー指摘：移動時のはみ出しをtranslateMemoで直したのと
- * 同じ問題が、最初に置く瞬間にも起こる）。
- * 原点(0,0)を中心にした箱を「原点からdesiredへ」動かす移動として捉え、
- * restrictTranslationに任せる（原点中心の箱は大抵境界に収まるため、境界に
- * 収まる範囲でdesiredにできるだけ近づける、という挙動になる）。原点に置いても
- * 箱が境界に収まりきらないほど大きい場合（レアケース）は、restrictTranslationが
- * 移動量0を返すため、そのまま原点を返す。
- */
-export function clampBoxCenter(
-  desired: Point,
-  halfWidth: number,
-  halfHeight: number,
-  clamp: (p: Point) => Point
-): Point {
-  const cornersAtOrigin = boxCorners({ x: 0, y: 0 }, halfWidth, halfHeight);
-  const { dx, dy } = restrictTranslation(cornersAtOrigin, desired.x, desired.y, clamp);
-  return { x: dx, y: dy };
-}
-
-/**
  * 消しゴム: center から radius 以内にある点をストロークから取り除く。
  * 取り除いた場所でストロークが分断される場合は、複数の断片に分けて返す
  * （2点未満になった断片は消える）。全く消えなければ元と同じ内容の1本を返す。
@@ -240,11 +217,16 @@ export function computeResponsiveScale(
   if (!(baseScale > 0) || !(widthPx > 0) || !(heightPx > 0)) return baseScale;
   let maxSpanX = 0;
   let maxSpanY = 0;
+  let maxLineSpanY = 0;
   for (const memo of memos) {
     if (memo.status !== "active") continue;
     const { halfW, halfH } = memoBounds(memo);
     if (halfW * 2 > maxSpanX) maxSpanX = halfW * 2;
-    if (halfH * 2 > maxSpanY) maxSpanY = halfH * 2;
+    if (memo.kind === "text" && memo.layout === "line") {
+      if (halfH * 2 > maxLineSpanY) maxLineSpanY = halfH * 2;
+    } else if (halfH * 2 > maxSpanY) {
+      maxSpanY = halfH * 2;
+    }
   }
   let scale = baseScale;
   if (maxSpanX > 0) {
@@ -252,6 +234,12 @@ export function computeResponsiveScale(
   }
   if (maxSpanY > 0) {
     scale = Math.min(scale, (heightPx * 0.92) / maxSpanY);
+  }
+  if (maxLineSpanY > 0) {
+    // 行モードの長文で紙全体が極端に縮小されて文字や手描き線が潰れるのを防ぐため、
+    // 行テキストの高さによる縮小は基準スケールの半分（170px＝文字サイズ下限相当）を下限にする。
+    const minLineScale = Math.min(baseScale, 170);
+    scale = Math.min(scale, Math.max(minLineScale, (heightPx * 0.92) / maxLineSpanY));
   }
   return Math.max(40, scale);
 }

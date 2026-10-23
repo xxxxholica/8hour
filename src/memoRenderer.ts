@@ -26,6 +26,28 @@ export function drawRadialGlow(
 }
 
 /**
+ * 高さrowHeightの1行の中で、文字を描くときの基準線とその位置（行の上端からの距離）。
+ * 編集中の<textarea>（DOMの行ボックス：行の高さの中で、フォントの上端・下端
+ * （ascent/descent）の合計を上下に均等な余白で挟んで配置する）と、確定後のcanvas描画の
+ * 文字の縦位置を一致させるために、canvasの"middle"（文字の枠の中央）ではなくDOMと
+ * 同じ計算で基準線(alphabetic)を決める。以前は"middle"で描いていたため、編集を
+ * 終えた瞬間に文字が約1px上へずれて見えた（ユーザー報告）。ctx.fontを設定済みの
+ * コンテキストに対して呼ぶ。fontBoundingBoxが使えない環境では従来の"middle"。
+ */
+export function rowTextBaseline(
+  ctx: CanvasRenderingContext2D,
+  rowHeight: number
+): { baseline: CanvasTextBaseline; offset: number } {
+  const m = ctx.measureText("あ");
+  const ascent = m.fontBoundingBoxAscent;
+  const descent = m.fontBoundingBoxDescent;
+  if (typeof ascent === "number" && typeof descent === "number") {
+    return { baseline: "alphabetic", offset: (rowHeight - (ascent + descent)) / 2 + ascent };
+  }
+  return { baseline: "middle", offset: rowHeight / 2 };
+}
+
+/**
  * 1つのメモをローカル座標系（中心が原点、基準1単位がradius px）に描画する。
  * 呼び出し側であらかじめ中心へtranslate済みのコンテキストに対して呼ぶこと。
  * 既定の黒インクはダークモード時に自動で白系インクへ切り替えて視認性を保つ。
@@ -64,10 +86,12 @@ export function renderMemoAt(
   ctx.fillStyle = resolvedColor;
   const fontPx = fontPxForRender(memo.fontSize, radius);
   ctx.font = `${fontPx}px ${TEXT_FONT_FAMILY}`;
-  ctx.textBaseline = "middle";
   const lineHeight = fontPx * (memo.lineHeight ?? LINE_HEIGHT_MULTIPLIER);
   const totalHeight = memo.textLines.length * lineHeight;
-  let ly = memo.y * radius - totalHeight / 2 + lineHeight / 2;
+  const rowBaseline = rowTextBaseline(ctx, lineHeight);
+  ctx.textBaseline = rowBaseline.baseline;
+  const topY = memo.layout === "line" ? (memo.y - memo.boxHeight / 2) * radius : memo.y * radius - totalHeight / 2;
+  let ly = topY + rowBaseline.offset;
   const isLeft = memo.align === "left";
   ctx.textAlign = isLeft ? "left" : "center";
   const lx = isLeft ? (memo.x - memo.boxWidth / 2) * radius : memo.x * radius;

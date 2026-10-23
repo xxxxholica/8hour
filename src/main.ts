@@ -123,9 +123,13 @@ const newSheetBtn = document.querySelector<HTMLButtonElement>("#new-sheet-btn")!
 const colorSwatchSlot = document.querySelector<HTMLDivElement>("#panel-swatch-slot")!;
 const recordGridTriggerSlot = document.querySelector<HTMLDivElement>("#record-grid-trigger-slot")!;
 
-const onToolChange = () => {
+const onToolChange = (kind: "tool" | "color") => {
   canvasView.closeWritingSession();
-  canvasView.finishTextEditingIfOpen();
+  if (kind === "color") {
+    canvasView.setEditingTextColor(toolbar.getColor());
+  } else {
+    canvasView.finishTextEditingIfOpen();
+  }
 };
 
 const toolbar = new Toolbar(
@@ -133,6 +137,7 @@ const toolbar = new Toolbar(
   colorSwatchSlot,
   onToolChange,
   () => canvasView.undo(),
+  () => canvasView.redo(),
   {
     container: recordGridTriggerSlot,
     onToggleDarkMode: () => {
@@ -147,6 +152,14 @@ window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener("change", (
   toolbar.syncThemeState();
 });
 
+// Escapeで、選んでいる道具を解除する（道具なしの状態へ戻る）。テキスト入力中のEscapeは
+// 入力の確定に使われる（canvasView.openTextEditor。伝播を止めているので、ここへは来ない）。
+// 日本語IMEの変換中のEscapeは、変換の取り消しなので無視する。
+window.addEventListener("keydown", (ev) => {
+  if (ev.key !== "Escape" || ev.isComposing || ev.keyCode === 229) return;
+  toolbar.clearTool();
+});
+
 const getToolState = () => ({
   tool: toolbar.getTool(),
   color: toolbar.getColor(),
@@ -155,8 +168,28 @@ const getToolState = () => ({
   eraserRadius: toolbar.getEraserRadius(),
 });
 
+// 行モードの書き込み領域から除く、画面の上端・下端のUI（ツールバー・カラーバー・
+// 右上のカード）が占める高さ。各カードの中心がキャンバスの上半分／下半分のどちらに
+// あるかで、上端側・下端側に振り分ける。
+function measureChromeInsets(): { top: number; bottom: number } {
+  const canvasRect = canvasWrap.getBoundingClientRect();
+  let top = 0;
+  let bottom = 0;
+  for (const el of [activeToolsPanel, colorSwatchSlot, recordGridTriggerSlot]) {
+    if (el.hidden) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) continue;
+    if ((r.top + r.bottom) / 2 < canvasRect.top + canvasRect.height / 2) {
+      top = Math.max(top, r.bottom - canvasRect.top);
+    } else {
+      bottom = Math.max(bottom, canvasRect.bottom - r.top);
+    }
+  }
+  return { top, bottom };
+}
+
 const canvasView = new CircularCanvas(canvasWrap, store, getToolState, {
-  fixedBottomTextEditorOnCoarsePointer: false,
+  getTextAreaInsetsPx: measureChromeInsets,
   onAutoTextToolStart: () => toolbar.activateTextTool(),
   getBackgroundTimerText: () => getDisplayedTimerText(),
 });
@@ -186,9 +219,7 @@ function frame(): void {
   syncSheetLockState();
   canvasView.render();
   const zoomed = canvasView.isZoomed();
-  const mobileTextEditing = canvasView.isEditingTextFixedBottom();
   app.classList.toggle("is-zoomed", zoomed);
-  app.classList.toggle("is-editing-text-mobile", mobileTextEditing);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

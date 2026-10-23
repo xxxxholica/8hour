@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  clearHistory,
+  loadHistory,
   loadMemos,
   loadSheetStartedAt,
   loadThemePreference,
+  saveHistory,
   saveMemos,
   saveSheetStartedAt,
   saveThemePreference,
@@ -270,3 +273,139 @@ describe("themePreference（テーマ設定の保存・復元）", () => {
     expect(loadThemePreference()).toBe("system");
   });
 });
+
+describe("テキストの配置方式（layout）", () => {
+  const baseText = {
+    kind: "text",
+    x: 0,
+    y: 0,
+    text: "a",
+    textLines: ["a"],
+    fontSize: 24,
+    boxWidth: 0.2,
+    boxHeight: 0.1,
+    createdAt: 1,
+    status: "active",
+    color: "#000",
+  };
+
+  it("layout: \"line\" のテキストメモはそのまま往復する", () => {
+    localStorage.setItem("memos", JSON.stringify([{ ...baseText, id: "t1", align: "left", layout: "line" }]));
+    const loaded = loadMemos()[0];
+    expect(loaded.kind === "text" && loaded.layout).toBe("line");
+  });
+
+  it("layoutを持たない既存データ・不正値はフリー扱い（layoutを付けない）", () => {
+    localStorage.setItem(
+      "memos",
+      JSON.stringify([
+        { ...baseText, id: "t2" },
+        { ...baseText, id: "t3", layout: "bogus" },
+      ])
+    );
+    for (const memo of loadMemos()) {
+      expect(memo.kind === "text" && memo.layout).toBeUndefined();
+    }
+  });
+});
+
+describe("undo/redo履歴の保存・復元", () => {
+  const stroke = (id: string, points = 3): Memo => ({
+    id,
+    kind: "stroke",
+    x: 0,
+    y: 0,
+    strokes: [Array.from({ length: points }, (_, i) => ({ x: i / 10, y: i / 20 }))],
+    tool: "pen",
+    color: "#000",
+    createdAt: 1,
+    status: "active",
+  });
+  const textMemo = (id: string, text: string): Memo => ({
+    id,
+    kind: "text",
+    x: 0,
+    y: 0,
+    text,
+    textLines: [text],
+    fontSize: 24,
+    boxWidth: 0.4,
+    boxHeight: 0.1,
+    createdAt: 1,
+    status: "active",
+    color: "#000",
+    align: "left",
+    lineHeight: 1.4,
+    layout: "line",
+  });
+
+  it("保存した履歴をそのまま復元できる（undo・redoともに、コマの順番を保つ）", () => {
+    const undo = [[], [stroke("a")], [stroke("a"), textMemo("t", "こんにちは")]];
+    const redo = [[stroke("a"), textMemo("t", "こんにちは"), stroke("b")]];
+    saveHistory(undo, redo);
+    const loaded = loadHistory();
+    expect(loaded.undo).toEqual(undo);
+    expect(loaded.redo).toEqual(redo);
+  });
+
+  it("復元したコマ同士・メモ同士はオブジェクトを共有しない（片方を書き換えても他に影響しない）", () => {
+    const shared = stroke("a");
+    saveHistory([[shared], [shared]], []);
+    const loaded = loadHistory();
+    expect(loaded.undo[0][0]).not.toBe(loaded.undo[1][0]);
+    (loaded.undo[0][0] as { x: number }).x = 99;
+    expect(loaded.undo[1][0].x).toBe(0);
+  });
+
+  it("同じ内容のメモは1つだけ保存する（コマ数が増えても、保存サイズは「全体＋変わった分」程度）", () => {
+    const base = Array.from({ length: 20 }, (_, i) => stroke(`m${i}`, 200));
+    const one = JSON.stringify(base).length;
+    // 隣り合うコマで1つのメモだけが違う、50コマの履歴
+    const undo = Array.from({ length: 50 }, (_, k) => base.map((m, i) => (i === 0 ? stroke("m0", 200 + k) : m)));
+    saveHistory(undo, []);
+    const saved = localStorage.getItem("memoHistory")!;
+    expect(saved.length).toBeLessThan(one * 6); // 素朴に全コマを保存すると約50倍
+    expect(loadHistory().undo).toHaveLength(50);
+  });
+
+  it("容量の上限を超えるときは、古いundoのコマから減らして収める", () => {
+    const big = (n: number) => [stroke(`b${n}`, 60000)]; // 1コマ約2MB（コマごとに別内容）
+    const undo = [big(0), big(1), big(2), big(3)];
+    saveHistory(undo, []);
+    const loaded = loadHistory();
+    expect(loaded.undo.length).toBeGreaterThan(0);
+    expect(loaded.undo.length).toBeLessThan(4);
+    // 残るのは新しい側のコマ
+    expect(loaded.undo[loaded.undo.length - 1][0].id).toBe("b3");
+  });
+
+  it("保存が無い・壊れている・形式が違うときは、空の履歴を返す", () => {
+    expect(loadHistory()).toEqual({ undo: [], redo: [] });
+    localStorage.setItem("memoHistory", "{broken");
+    expect(loadHistory()).toEqual({ undo: [], redo: [] });
+    localStorage.setItem("memoHistory", JSON.stringify({ v: 999, pool: [], undo: [], redo: [] }));
+    expect(loadHistory()).toEqual({ undo: [], redo: [] });
+    localStorage.setItem("memoHistory", JSON.stringify({ v: 1, pool: ["{\"id\":1}"], undo: [[0]], redo: [] }));
+    expect(loadHistory()).toEqual({ undo: [], redo: [] });
+    localStorage.setItem("memoHistory", JSON.stringify({ v: 1, pool: [], undo: [[5]], redo: [] }));
+    expect(loadHistory()).toEqual({ undo: [], redo: [] });
+    // 改ざんによる過剰な参照増幅（DoS）も拒否して空を返す
+    localStorage.setItem(
+      "memoHistory",
+      JSON.stringify({
+        v: 1,
+        pool: [JSON.stringify(stroke("a"))],
+        undo: [Array.from({ length: 20000 }, () => 0)],
+        redo: [],
+      })
+    );
+    expect(loadHistory()).toEqual({ undo: [], redo: [] });
+  });
+
+  it("clearHistoryで保存済みの履歴を消せる", () => {
+    saveHistory([[stroke("a")]], []);
+    clearHistory();
+    expect(loadHistory()).toEqual({ undo: [], redo: [] });
+  });
+});
+

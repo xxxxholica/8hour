@@ -71,7 +71,17 @@ export interface TextMemo extends MemoBase {
    *  瞬間だけ、これより少し狭い専用の値（textLayout.TEMPLATE_LINE_HEIGHT_MULTIPLIER）
    *  にする（ユーザー指示：テンプレートのみ行間を少し狭くしたい）。 */
   lineHeight?: number;
+  /** テキストの配置方式。"line"（行モード）はタップ位置を左端に、縦位置は行グリッドに
+   *  合わせた左揃えの文章で、書き込み領域の右端まで自動で折り返す。現在の版が作る
+   *  テキストメモはすべて"line"。"free"（タップ位置を中心にした自由配置）は、すでに
+   *  廃止した旧バージョンの配置方式で、省略時（この項目が無かった旧バージョンの
+   *  データ）もこちらとして扱う。表示と移動はそのまま可能で、再編集すると"line"に
+   *  書き直される。 */
+  layout?: TextLayoutMode;
 }
+
+/** テキストの配置方式（TextMemo.layout参照）。 */
+export type TextLayoutMode = "line" | "free";
 
 export type Memo = StrokeMemo | TextMemo;
 
