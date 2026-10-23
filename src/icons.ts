@@ -4,7 +4,7 @@
  * 一部パスに反映できるようサブパスを分割している。
  */
 export const ICONS: Record<
-  "pen" | "marker" | "eraser" | "text" | "move" | "undo" | "darkMode" | "lightMode",
+  "pen" | "marker" | "eraser" | "text" | "move" | "undo" | "redo" | "darkMode" | "lightMode",
   string
 > = {
   pen: `
@@ -34,6 +34,11 @@ export const ICONS: Record<
     </svg>`,
   undo: `
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor">
+      <path d="M236,144a68.07,68.07,0,0,1-68,68H80a12,12,0,0,1,0-24h88a44,44,0,0,0,0-88H61l27.52,27.51a12,12,0,0,1-17,17l-48-48a12,12,0,0,1,0-17l48-48a12,12,0,1,1,17,17L61,76H168A68.08,68.08,0,0,1,236,144Z"/>
+    </svg>`,
+  // 「やり直す」は「戻る」（undo）のアイコンを左右反転したもの。
+  redo: `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" style="transform: scaleX(-1)">
       <path d="M236,144a68.07,68.07,0,0,1-68,68H80a12,12,0,0,1,0-24h88a44,44,0,0,0,0-88H61l27.52,27.51a12,12,0,0,1-17,17l-48-48a12,12,0,0,1,0-17l48-48a12,12,0,1,1,17,17L61,76H168A68.08,68.08,0,0,1,236,144Z"/>
     </svg>`,
   darkMode: `

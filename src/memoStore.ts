@@ -1,13 +1,16 @@
 import { boxCorners, circleIntersectsBox, clampToRoundedRect, eraseFromStroke, isInsideClamp, restrictTranslation } from "./geometry";
-import { loadMemos, saveMemos } from "./storage";
+import { clearHistory, loadHistory, loadMemos, saveHistory, saveMemos } from "./storage";
 import { LINE_HEIGHT_MULTIPLIER } from "./textLayout";
-import type { Memo, MemoStyle, Point, Stroke, TextMemo } from "./types";
+import type { Memo, MemoStyle, Point, Stroke, TextLayoutMode, TextMemo } from "./types";
 
 function makeId(): string {
   return `memo_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 const MAX_UNDO_HISTORY = 50;
+/** undo/redo履歴をlocalStorageへ書き出すまでの待ち時間（ms）。履歴が変わるたびに全体を
+ *  書き直すと、ジェスチャーの開始ごとに重くなるため、少し待ってまとめて書く。 */
+const HISTORY_SAVE_DELAY_MS = 400;
 const DEFAULT_CLAMP = (p: Point): Point => clampToRoundedRect(p, 1, 0.2);
 
 /**
@@ -20,11 +23,56 @@ export class MemoStore {
   private persistLocally: boolean;
   private undoStack: Memo[][] = [];
   private redoStack: Memo[][] = [];
+  private historySaveTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(onChange?: (memos: readonly Memo[]) => void, persistLocally: boolean = true) {
     this.persistLocally = persistLocally;
     this.memos = persistLocally ? loadMemos() : [];
     this.onChange = onChange;
+    if (persistLocally) {
+      // undo/redo履歴も、リロード後に引き継ぐ。履歴の寿命は紙と同じ（replaceAll／resetAllで
+      // 紙が白紙に戻るときに破棄する）。
+      const history = loadHistory();
+      this.undoStack = history.undo;
+      this.redoStack = history.redo;
+      if (typeof window !== "undefined") {
+        // タブを閉じる・切り替える前に、待っている履歴の書き出しを済ませる。
+        window.addEventListener("pagehide", () => this.flushHistory());
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "hidden") this.flushHistory();
+        });
+      }
+    }
+  }
+
+  /** undo/redo履歴の保存を予約する（少し待ってまとめて書く）。ブラウザ以外（テスト等）では即座に書く。 */
+  private scheduleHistorySave(): void {
+    if (!this.persistLocally) return;
+    if (typeof window === "undefined") {
+      saveHistory(this.undoStack, this.redoStack);
+      return;
+    }
+    if (this.historySaveTimer !== null) return;
+    this.historySaveTimer = setTimeout(() => this.flushHistory(), HISTORY_SAVE_DELAY_MS);
+  }
+
+  /** 予約中のundo/redo履歴の保存があれば、今すぐ書き出す。 */
+  flushHistory(): void {
+    if (this.historySaveTimer === null) return;
+    clearTimeout(this.historySaveTimer);
+    this.historySaveTimer = null;
+    saveHistory(this.undoStack, this.redoStack);
+  }
+
+  /** undo/redo履歴を保存先ごと破棄する。 */
+  private discardHistory(): void {
+    this.undoStack = [];
+    this.redoStack = [];
+    if (this.historySaveTimer !== null) {
+      clearTimeout(this.historySaveTimer);
+      this.historySaveTimer = null;
+    }
+    if (this.persistLocally) clearHistory();
   }
 
   private persist(): void {
@@ -40,6 +88,7 @@ export class MemoStore {
     this.undoStack.push(structuredClone(this.memos));
     if (this.undoStack.length > MAX_UNDO_HISTORY) this.undoStack.shift();
     this.redoStack = [];
+    this.scheduleHistorySave();
   }
 
   /** 直前の操作を取り消す。取り消せる操作が無ければ何もしない。 */
@@ -49,6 +98,7 @@ export class MemoStore {
     this.redoStack.push(structuredClone(this.memos));
     this.memos = prev;
     this.persist();
+    this.scheduleHistorySave();
     return true;
   }
 
@@ -59,6 +109,7 @@ export class MemoStore {
     this.undoStack.push(structuredClone(this.memos));
     this.memos = next;
     this.persist();
+    this.scheduleHistorySave();
     return true;
   }
 
@@ -67,8 +118,7 @@ export class MemoStore {
    */
   replaceAll(memos: Memo[]): void {
     this.memos = memos;
-    this.undoStack = [];
-    this.redoStack = [];
+    this.discardHistory();
     if (this.persistLocally) saveMemos(this.memos);
   }
 
@@ -113,7 +163,7 @@ export class MemoStore {
     fontSize: number,
     boxWidth: number,
     boxHeight: number,
-    style: { color: string; align?: "center" | "left"; lineHeight?: number },
+    style: { color: string; align?: "center" | "left"; lineHeight?: number; layout?: TextLayoutMode },
     now: number = Date.now(),
     originHalfExtent?: { halfW: number; halfH: number }
   ): TextMemo {
@@ -132,6 +182,7 @@ export class MemoStore {
       color: style.color,
       align: style.align ?? "center",
       lineHeight: style.lineHeight ?? LINE_HEIGHT_MULTIPLIER,
+      ...(style.layout ? { layout: style.layout } : {}),
       ...(originHalfExtent ? { originHalfW: originHalfExtent.halfW, originHalfH: originHalfExtent.halfH } : {}),
     };
     this.memos.push(memo);
@@ -174,14 +225,31 @@ export class MemoStore {
     return false;
   }
 
-  /** 既存のテキストメモの内容を書き換える。 */
-  updateTextMemo(memoId: string, text: string, textLines: string[], boxWidth: number, boxHeight: number): void {
+  /** 既存のテキストメモの内容を書き換える。extras.positionを渡すと中心座標も更新する
+   *  （行モードは左端・上端を固定したまま幅・高さが変わるため、中心が動く）。
+   *  extras.layout／alignは、旧バージョンの自由配置のメモを行モードへ書き直す
+   *  ときに渡す。 */
+  updateTextMemo(
+    memoId: string,
+    text: string,
+    textLines: string[],
+    boxWidth: number,
+    boxHeight: number,
+    extras?: { position?: Point; layout?: TextLayoutMode; align?: "center" | "left"; color?: string }
+  ): void {
     const memo = this.memos.find((m) => m.id === memoId);
     if (!memo || memo.kind !== "text" || memo.status !== "active") return;
     memo.text = text;
     memo.textLines = textLines;
     memo.boxWidth = boxWidth;
     memo.boxHeight = boxHeight;
+    if (extras?.position) {
+      memo.x = extras.position.x;
+      memo.y = extras.position.y;
+    }
+    if (extras?.layout) memo.layout = extras.layout;
+    if (extras?.align) memo.align = extras.align;
+    if (extras?.color) memo.color = extras.color;
     this.persist();
   }
 
@@ -238,8 +306,7 @@ export class MemoStore {
 
   resetAll(): void {
     this.memos = [];
-    this.undoStack = [];
-    this.redoStack = [];
+    this.discardHistory();
     this.persist();
   }
 
@@ -270,7 +337,12 @@ export class MemoStore {
   /**
    * 消しゴム: center から radius 以内をアクティブなメモから削除する。
    */
-  eraseAt(center: Point, radius: number, getOffset?: (memo: Memo) => Point): boolean {
+  eraseAt(
+    center: Point,
+    radius: number,
+    getOffset?: (memo: Memo) => Point,
+    skipLineText = false
+  ): boolean {
     let changed = false;
     this.memos = this.memos.filter((memo) => {
       if (memo.status !== "active") return true;
@@ -278,6 +350,7 @@ export class MemoStore {
       const localCenter = offset.x === 0 && offset.y === 0 ? center : { x: center.x - offset.x, y: center.y - offset.y };
 
       if (memo.kind === "text") {
+        if (skipLineText && memo.layout === "line") return true; // 行単位で消す呼び出し側に任せる
         const touched = circleIntersectsBox(localCenter, radius, {
           x: memo.x,
           y: memo.y,

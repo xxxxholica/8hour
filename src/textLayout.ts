@@ -7,21 +7,10 @@ export const TEXT_FONT_FAMILY = "'Klee One', 'Noto Sans JP', sans-serif";
  *  これをREFERENCE_RADIUSで割った値になる。テンプレート（持ち物チェック等、
  *  固定レイアウトの複数行）はこの固定幅のまま使う。通常のテキスト入力
  *  （タップ開始・キーボードでの直接入力どちらも）は、この値に固定せず実際の
- *  内容に応じて可変幅にする（下記measureTextBoxWidthPx参照）——固定幅だと、
+ *  内容に応じて可変幅にする（下記layoutText参照）——固定幅だと、
  *  短い一言でも余白だらけの大きな箱になったり、逆に長い文が狭すぎてすぐ
  *  折り返されたりして書きにくかった（ユーザー指摘）。 */
 export const REFERENCE_TEXT_BOX_WIDTH_PX = 240;
-
-/** 可変幅テキストボックスの下限（基準円でのpx値）。短い一言でも極端に細く
- *  ならないようにする最小幅。 */
-const MIN_TEXT_BOX_WIDTH_PX = 140;
-
-/** 可変幅テキストボックスの上限（基準円でのpx値）。ここを超える長さの行は
- *  折り返す——上限なしにすると、円が一番広い高さ以外では形状からはみ出す
- *  マスしか見つからなくなってしまう（実機で再現：中心以外のほぼ全域で空きが
- *  見つからず、すべての入力が同じ場所に重なった）ため、はみ出しを許容しつつも
- *  現実的な範囲に収める。 */
-const MAX_TEXT_BOX_WIDTH_PX = 480;
 
 /** 行の高さ（フォントサイズに対する倍率）。 */
 export const LINE_HEIGHT_MULTIPLIER = 1.4;
@@ -77,9 +66,8 @@ function wrapParagraphs(ctx: CanvasRenderingContext2D, text: string, maxWidth: n
  * ユーザーが選んだ文字サイズに関わらず、常にこの基準サイズで測定することで、
  * リサイズしても行分割の結果（＝改行位置）が変わらないようにする（フォントサイズも
  * 折り返し幅も同じ比率で実際の半径にスケールするため、基準サイズでの折り返し結果は
- * どの半径でもそのまま正しく使い回せる）。通常のテキスト入力は、測定した実際の幅
- * （measureTextBoxWidthPx参照）をmaxWidthPxとして渡すことで、編集中に見えていた
- * 折り返しと確定後の描画が一致するようにする。
+ * どの半径でもそのまま正しく使い回せる）。通常のテキスト入力は、この関数ではなく
+ * layoutText（紙の幅いっぱいまで折り返さない）で行分割する。
  */
 export function wrapTextAtReferenceScale(
   ctx: CanvasRenderingContext2D,
@@ -112,26 +100,93 @@ export function normalizedBoxSize(
 }
 
 /**
- * 実際に打たれた内容に合わせて、基準円でのテキストボックス幅(px)を測る（可変幅）。
- * 一番長い行の幅に左右の余白ぶんを足し、MIN〜MAX_TEXT_BOX_WIDTH_PXの範囲に収める。
- * ここで測った幅をそのままwrapTextAtReferenceScale/normalizedBoxSizeのmaxWidthPx/
- * boxWidthPxに渡すことで、編集中の見た目（textareaの実際の幅）と確定後の描画
- * （折り返し・boxWidth）を一致させる。
+ * 確定時のレイアウト。内容の幅がmaxContentWidthPx以内なら折り返さず、超える行
+ * だけを折り返す（基準円スケール）。contentWidthPxは折り返し後の最長行の幅。
+ * 上限幅は固定値ではなく、呼び出し側が「書き込み領域の右端までの幅」から計算して
+ * 渡す（canvasView.openTextEditor参照）。以前は固定の480px（24pxの全角で約20文字）が
+ * 上限で、それを超える行は意図せず自動で折り返されていた（ユーザー報告）。
  */
-export function measureTextBoxWidthPx(
+export function layoutText(
   ctx: CanvasRenderingContext2D,
   text: string,
-  fontPxAtReference: number
-): number {
+  fontPxAtReference: number,
+  maxContentWidthPx: number
+): { lines: string[]; contentWidthPx: number } {
   const prevFont = ctx.font;
   ctx.font = `${fontPxAtReference}px ${TEXT_FONT_FAMILY}`;
-  let maxLineWidth = 0;
-  for (const line of text.split("\n")) {
-    maxLineWidth = Math.max(maxLineWidth, ctx.measureText(line).width);
+  const wrapped = wrapParagraphs(ctx, text, maxContentWidthPx);
+  const lines = wrapped.length > 0 ? wrapped : [""];
+  let contentWidthPx = 0;
+  for (const line of lines) {
+    contentWidthPx = Math.max(contentWidthPx, ctx.measureText(line).width);
   }
   ctx.font = prevFont;
-  // 左右の余白: text-editor-overlayのpadding(4px 6px)+border(1px)ぶんに加え、
-  // カーソルが行末に来ても窮屈にならないよう半文字ぶん多めに取る。
-  const padding = fontPxAtReference * 0.6 + 14;
-  return Math.min(MAX_TEXT_BOX_WIDTH_PX, Math.max(MIN_TEXT_BOX_WIDTH_PX, maxLineWidth + padding));
+  return { lines, contentWidthPx };
+}
+
+/* --- 行モード（TextMemo.layout === "line"）の行グリッド ---
+   縦位置は「行の上端」がpitch（行の高さ、正規化単位）の整数倍に揃う。行kは
+   y ∈ [k*pitch, (k+1)*pitch]で、ガイド罫（canvasView.render）はその境界に引く。 */
+
+/** 行グリッドの1行の高さ（円の半径を1とする正規化単位）。 */
+export function lineRowPitch(fontPxAtReference: number, lineHeightMultiplier: number = LINE_HEIGHT_MULTIPLIER): number {
+  return (fontPxAtReference * lineHeightMultiplier) / REFERENCE_RADIUS;
+}
+
+/** タップしたy（正規化）を含む行の上端へ揃える。 */
+export function snapToRowTop(y: number, pitch: number): number {
+  return Math.floor(y / pitch) * pitch;
+}
+
+/** ブロックの上端topを、高さheightのブロックが[areaTop, areaBottom]に収まる範囲へ
+ *  寄せる。すでに収まっていれば動かさない。寄せるときは行グリッド上の位置にする。 */
+export function clampRowTop(top: number, height: number, pitch: number, areaTop: number, areaBottom: number): number {
+  const minTop = areaTop;
+  const maxTop = areaBottom - height;
+  if (maxTop < minTop) return minTop; // 領域より高いブロックは上端に揃えるだけ
+  if (top >= minTop && top <= maxTop) return top;
+  if (top < minTop) return Math.min(Math.ceil(minTop / pitch) * pitch, maxTop);
+  return Math.max(Math.floor(maxTop / pitch) * pitch, minTop);
+}
+
+/** 行モードで最低限確保する折り返し幅（基準円でのpx値、全角6文字ぶん）。 */
+export function minLineWrapWidthPx(fontPxAtReference: number): number {
+  return fontPxAtReference * 6;
+}
+
+/** 行モードの左端xを、最低限の折り返し幅が右端（areaRight）まで残る範囲
+ *  （[areaLeft, areaRight - 最低幅]）へ寄せる。 */
+export function clampLineLeft(x: number, areaLeft: number, areaRight: number, fontPxAtReference: number): number {
+  const minWrap = minLineWrapWidthPx(fontPxAtReference) / REFERENCE_RADIUS;
+  const maxLeft = areaRight - minWrap;
+  if (maxLeft < areaLeft) return areaLeft;
+  return Math.min(Math.max(x, areaLeft), maxLeft);
+}
+
+/**
+ * 折り返し済みの行（textLines）を、元の文章（text）の段落（改行で区切られた1行）ごとの
+ * グループに分ける。折り返しは文字を欠かさず分割するだけなので、段落ごとに行を順に
+ * 取り出して連結すると元の段落に戻る。戻らない（データが食い違っている）場合はnull。
+ * 行モードのメモを段落（行）ごとに分けて動かすときに使う。
+ */
+export function groupRowsByParagraph(text: string, textLines: string[]): string[][] | null {
+  const groups: string[][] = [];
+  let i = 0;
+  for (const paragraph of text.split("\n")) {
+    const rows: string[] = [];
+    if (paragraph === "") {
+      if (textLines[i] !== "") return null;
+      rows.push(textLines[i++]);
+    } else {
+      let joined = "";
+      while (joined.length < paragraph.length) {
+        if (i >= textLines.length || textLines[i] === "") return null;
+        rows.push(textLines[i]);
+        joined += textLines[i++];
+      }
+      if (joined !== paragraph) return null;
+    }
+    groups.push(rows);
+  }
+  return i === textLines.length ? groups : null;
 }

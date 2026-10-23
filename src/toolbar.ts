@@ -1,5 +1,4 @@
 import { createFadeVisibility } from "./fadeVisibility";
-import { notifyClose, notifyOpen } from "./exclusivePopover";
 import { ICONS } from "./icons";
 import { DEFAULT_FONT_SIZE_STEP, FONT_SIZE_STEPS } from "./textLayout";
 import { DEFAULT_LIGHT_INK, isDarkThemeActive, resolveInkColor } from "./theme";
@@ -15,15 +14,6 @@ export type ToolbarTool = DrawTool | "eraser" | "text" | "move" | "none";
 type SelectableTool = Exclude<ToolbarTool, "none">;
 
 export const DEFAULT_INK = DEFAULT_LIGHT_INK;
-
-function customInkColor(hue: number): string {
-  return `oklch(75% 0.15 ${hue})`;
-}
-
-function hueFromCustomInkColor(color: string): number | null {
-  const match = /^oklch\(75% 0\.15 (-?\d+(?:\.\d+)?)\)$/.exec(color);
-  return match ? Number(match[1]) : null;
-}
 
 const DEFAULT_ERASER_RADIUS = 16;
 
@@ -50,7 +40,7 @@ const TOOL_LABEL: Record<ToolbarTool, string> = {
   pen: "ペン",
   marker: "マーカー",
   text: "テキスト",
-  move: "選択",
+  move: "移動・並べ替え",
   eraser: "消しゴム",
   none: "道具なし",
 };
@@ -70,8 +60,9 @@ export class Toolbar {
   private el: HTMLElement;
   private container: HTMLElement;
   private colorSwatchContainer: HTMLElement;
-  private onChange?: () => void;
+  private onChange?: (kind: "tool" | "color") => void;
   private onUndo?: () => void;
+  private onRedo?: () => void;
   private onToggleDarkMode?: () => void;
   private tool: ToolbarTool = "none";
   private drawColor: string = DEFAULT_INK;
@@ -80,31 +71,25 @@ export class Toolbar {
 
   private toolButtons = new Map<ToolbarTool, HTMLButtonElement>();
   private undoBtn!: HTMLButtonElement;
+  private redoBtn!: HTMLButtonElement;
   private darkModeBtn: HTMLButtonElement | null = null;
   private darkModeIconSlot: HTMLSpanElement | null = null;
 
   private presetButtons: HTMLButtonElement[] = [];
-  private customSwatchBtn!: HTMLButtonElement;
-  private customColorAnchor!: HTMLElement;
-  private customColorPopover!: HTMLElement;
-  private customColorPopoverFade!: (show: boolean) => void;
-  private customColorPopoverOpen = false;
-  private readonly closeCustomColorPopoverRef = () => this.closeCustomColorPopover();
-  private hueSlider!: HTMLInputElement;
-  private customColor: string | null = null;
   private lastSwatchPaletteMode: "pen" | "marker" | null = null;
-
   constructor(
     container: HTMLElement,
     colorSwatchContainer: HTMLElement,
-    onChange?: () => void,
+    onChange?: (kind: "tool" | "color") => void,
     onUndo?: () => void,
+    onRedo?: () => void,
     options?: TopRightBarOptions
   ) {
     this.container = container;
     this.colorSwatchContainer = colorSwatchContainer;
     this.onChange = onChange;
     this.onUndo = onUndo;
+    this.onRedo = onRedo;
     this.onToggleDarkMode = options?.onToggleDarkMode;
 
     this.el = document.createElement("div");
@@ -149,7 +134,7 @@ export class Toolbar {
   private setTool(tool: ToolbarTool): void {
     this.tool = tool;
     this.syncAll();
-    this.onChange?.();
+    this.onChange?.("tool");
   }
 
   private buildTools(): void {
@@ -180,6 +165,16 @@ export class Toolbar {
     this.attachToolTooltip(undoBtn, "戻る");
     this.undoBtn = undoBtn;
     pill.appendChild(undoBtn);
+
+    const redoBtn = document.createElement("button");
+    redoBtn.type = "button";
+    redoBtn.className = "toolbar-btn";
+    redoBtn.setAttribute("aria-label", "やり直す");
+    redoBtn.innerHTML = ICONS.redo;
+    redoBtn.addEventListener("click", () => this.onRedo?.());
+    this.attachToolTooltip(redoBtn, "やり直す");
+    this.redoBtn = redoBtn;
+    pill.appendChild(redoBtn);
 
     tools.appendChild(pill);
   }
@@ -250,71 +245,21 @@ export class Toolbar {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "toolbar-swatch";
+      // テキスト入力中に色スワッチを押しても、<textarea>のフォーカスが外れて入力が
+      // 閉じてしまわないようにする（編集中はその場で色だけ切り替える）。
+      const keepFocus = (ev: Event) => ev.preventDefault();
+      btn.addEventListener("pointerdown", keepFocus);
+      btn.addEventListener("mousedown", keepFocus);
       btn.addEventListener("click", () => {
         this.setActiveColor(this.activePresetInks()[i].color);
         this.syncSwatch();
-        this.onChange?.();
+        this.onChange?.("color");
       });
       this.presetButtons.push(btn);
       row.appendChild(btn);
     }
 
-    this.customColorAnchor = document.createElement("div");
-    this.customColorAnchor.className = "icon-anchor toolbar-custom-color-anchor";
-
-    this.customSwatchBtn = document.createElement("button");
-    this.customSwatchBtn.type = "button";
-    this.customSwatchBtn.className = "toolbar-swatch toolbar-swatch--custom";
-    this.customSwatchBtn.setAttribute("aria-label", "好きな色を選ぶ");
-    this.customSwatchBtn.addEventListener("click", () => this.toggleCustomColorPopover());
-    this.customColorAnchor.appendChild(this.customSwatchBtn);
-
-    this.customColorPopover = document.createElement("div");
-    this.customColorPopover.className = "icon-popover toolbar-custom-color-popover";
-    this.customColorPopover.hidden = true;
-    this.customColorPopoverFade = createFadeVisibility(this.customColorPopover);
-
-    this.hueSlider = document.createElement("input");
-    this.hueSlider.type = "range";
-    this.hueSlider.min = "0";
-    this.hueSlider.max = "360";
-    this.hueSlider.step = "1";
-    this.hueSlider.value = "0";
-    this.hueSlider.className = "theme-hue-slider";
-    this.hueSlider.setAttribute("aria-label", "好きな色を選ぶ");
-    this.hueSlider.addEventListener("input", () => {
-      this.customColor = customInkColor(Number(this.hueSlider.value));
-      this.setActiveColor(this.customColor);
-      this.syncSwatch();
-      this.onChange?.();
-    });
-    this.customColorPopover.appendChild(this.hueSlider);
-    this.customColorAnchor.appendChild(this.customColorPopover);
-
-    row.appendChild(this.customColorAnchor);
-
     container.appendChild(row);
-  }
-
-  private toggleCustomColorPopover(): void {
-    if (this.customColorPopoverOpen) this.closeCustomColorPopover();
-    else this.openCustomColorPopover();
-  }
-
-  private openCustomColorPopover(): void {
-    if (this.customColorPopoverOpen) return;
-    const hue = hueFromCustomInkColor(this.getColor());
-    if (hue !== null) this.hueSlider.value = String(hue);
-    notifyOpen(this.closeCustomColorPopoverRef, this.customColorAnchor);
-    this.customColorPopoverOpen = true;
-    this.customColorPopoverFade(true);
-  }
-
-  private closeCustomColorPopover(): void {
-    if (!this.customColorPopoverOpen) return;
-    this.customColorPopoverOpen = false;
-    this.customColorPopoverFade(false);
-    notifyClose(this.closeCustomColorPopoverRef);
   }
 
   private syncSwatch(): void {
@@ -327,14 +272,12 @@ export class Toolbar {
 
     const presets = this.activePresetInks();
     const color = this.getColor();
-    let isPresetActive = false;
     presets.forEach((preset, i) => {
       const btn = this.presetButtons[i];
       btn.style.backgroundColor = resolveInkColor(preset.color);
       btn.setAttribute("aria-label", `インクの色: ${preset.label}`);
       const active = preset.color === color;
       btn.dataset.active = String(active);
-      if (active) isPresetActive = true;
       if (paletteChanged && typeof btn.animate === "function") {
         btn.animate(
           [
@@ -350,28 +293,17 @@ export class Toolbar {
         );
       }
     });
-    this.customSwatchBtn.dataset.active = String(!isPresetActive);
-    if (!isPresetActive) {
-      this.customSwatchBtn.style.background = resolveInkColor(color);
-    } else if (this.customColor) {
-      this.customSwatchBtn.style.background = this.customColor;
-    } else {
-      this.customSwatchBtn.style.background = "";
-    }
     this.syncToolIcons();
   }
 
   private syncFollowerCard(): void {
     const isColorActive = this.tool === "pen" || this.tool === "marker" || this.tool === "text";
-    if (!isColorActive) this.closeCustomColorPopover();
     this.colorSwatchContainer.dataset.visible = String(isColorActive);
     this.colorSwatchContainer.setAttribute("aria-hidden", String(!isColorActive));
     for (const btn of this.presetButtons) {
       btn.disabled = !isColorActive;
       btn.tabIndex = isColorActive ? 0 : -1;
     }
-    this.customSwatchBtn.disabled = !isColorActive;
-    this.customSwatchBtn.tabIndex = isColorActive ? 0 : -1;
   }
 
   private syncToolIcons(): void {
@@ -390,16 +322,21 @@ export class Toolbar {
 
   setToolsDisabled(disabled: boolean): void {
     if (disabled) {
-      this.closeCustomColorPopover();
       this.setTool("none");
     }
     for (const btn of this.toolButtons.values()) {
       btn.disabled = disabled;
     }
     this.undoBtn.disabled = disabled;
+    this.redoBtn.disabled = disabled;
   }
 
   activateTextTool(): void {
     this.setTool("text");
+  }
+
+  /** 選んでいる道具を解除する（道具なしの状態へ戻す）。Escapeキー用。 */
+  clearTool(): void {
+    if (this.tool !== "none") this.setTool("none");
   }
 }

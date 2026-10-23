@@ -1,23 +1,40 @@
 import { FrameGeometry } from "./frameGeometry";
 import {
   circleIntersectsBox,
-  clampBoxCenter,
   computeMemoDisplayOffset,
   distance,
   isInsideClamp,
   pointNearStrokes,
 } from "./geometry";
-import { drawRadialGlow, renderMemoAt } from "./memoRenderer";
+import { drawRadialGlow, renderMemoAt, rowTextBaseline } from "./memoRenderer";
 import type { MemoStore } from "./memoStore";
 import { drawRuledPaper } from "./paper";
 import {
   fontPxForRender,
+  groupRowsByParagraph,
   LINE_HEIGHT_MULTIPLIER,
-  measureTextBoxWidthPx,
+  clampLineLeft,
+  clampRowTop,
+  layoutText,
+  lineRowPitch,
+  minLineWrapWidthPx,
   normalizedBoxSize,
+  snapToRowTop,
   TEXT_FONT_FAMILY,
-  wrapTextAtReferenceScale,
 } from "./textLayout";
+import {
+  autoConvertBullet,
+  backspaceAtMarker,
+  continueList,
+  indentLines,
+  isBlankText,
+  outdentLines,
+  renumber,
+  startNextLine,
+  stripTrailingBlankLines,
+  toggleMarker,
+  type EditState,
+} from "./textList";
 import { isDarkThemeActive, resolveInkColor } from "./theme";
 import { REFERENCE_RADIUS } from "./toolStyle";
 import type { ToolbarTool } from "./toolbar";
@@ -47,24 +64,6 @@ const WRITING_SESSION_IDLE_MS = 1400;
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 3;
 
-/**
- * モバイルの複数指タップ（issue #90：2本指=直前の操作の取り消し(undo)、
- * 3本指=やり直し(redo)、GoodNotes等のノートアプリで一般的なジェスチャー）
- * の判定に使うしきい値。ピンチズームは「選択」道具の間だけ始まる
- * （beginPinch/onGlobalPointerDownのコメント参照）が、複数指タップの判定
- * 自体は道具に関わらず常に行う——undo/redoはどの道具を選んでいても使いたい
- * 操作のため。
- * TAP_MAX_MOVEMENT_PXは、指が触れてから離れるまでの間にこれを超えて動いたら
- * 「タップ」ではなくドラッグ（ピンチ・パン、または各道具の通常操作）とみなす。
- * TAP_MAX_DURATION_MSは、この一連のマルチタッチ（最初の指が触れてから、
- * 関わった指が全て離れるまで）の最大時間（ms）——長押しや、1本の指で長く
- * 描き続けている間に別の指が一瞬触れた、といったケースはタップとみなさない
- * （後者は、最後まで描き続けているその指自体がこの時間を超えるため自然に
- * 除外される）。
- */
-const TAP_MAX_MOVEMENT_PX = 12;
-const TAP_MAX_DURATION_MS = 400;
-
 function pointerMidpoint(a: Point, b: Point): Point {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
 }
@@ -74,6 +73,15 @@ function pointerMidpoint(a: Point, b: Point): Point {
  *  iPad等の広い画面のタッチデバイスも対象に含めたいため。 */
 function isCoarsePointerDevice(): boolean {
   return window.matchMedia?.("(pointer: coarse)").matches ?? false;
+}
+
+/** 行モードの書き込み領域（lineTextArea）の、上下の余白（画面px）。 */
+const TEXT_AREA_MARGIN_Y_PX = 28;
+
+/** 行モードの書き込み領域の、左右の余白（画面px）。上下より広く、画面幅に応じて
+ *  広げる（幅の8%、ただし40〜120px）——文章が画面の端に張り付かないようにする。 */
+function textAreaMarginX(frameWidthPx: number): number {
+  return Math.min(120, Math.max(40, frameWidthPx * 0.08));
 }
 
 /** 進行中のピンチ操作の起点（開始時の指間距離・中点・その時点のズーム/パン）。 */
@@ -112,15 +120,16 @@ interface DrawState {
  * ——ウィンドウを広げれば単純にその分だけ拡大して描かれる。
  */
 export interface CircularCanvasOptions {
-  /** 粗いポインター（主にスマホ）で入力欄をキーボード直上へ固定するか。
-   *  省略時はtrue。 */
-  fixedBottomTextEditorOnCoarsePointer?: boolean;
   /** 道具バーで何も選ばずキーボードから直接文字を打ち始めた時
    *  （onGlobalKeyDown、印字可能キー1文字での新規テキストメモ作成）に呼ぶ。
    *  実際にはテキストメモの作成が始まっているのに道具バー上は元の道具
    *  （多くは「道具なし」）のまま変わらず見えていた（ユーザー指摘）ため、
    *  呼び出し側（main.ts）がここで道具バーの表示をテキストへ切り替える。 */
   onAutoTextToolStart?: () => void;
+  /** 行モードの書き込み領域（ガイド罫・折り返し・配置の範囲）から除く、画面の上端・
+   *  下端のUI（ツールバー・カラーバー等）が占める高さ（画面px、キャンバスの上端／下端
+   *  から測る）。省略時は0。 */
+  getTextAreaInsetsPx?: () => { top: number; bottom: number };
   /** キャンバス中央の背景に大きく描くタイマー文字列（例："08:00:00"）。 */
   getBackgroundTimerText?: () => string;
 }
@@ -155,6 +164,37 @@ export class CircularCanvas {
   private container: HTMLElement;
   private store: MemoStore;
   private textEditor: HTMLTextAreaElement | null = null;
+  /** 既存のテキストメモを編集している間、そのメモのid（新規入力中・編集していない間はnull）。
+   *  編集中のメモをキャンバスにも描き続けると、textareaの下に編集前の文字が
+   *  重なって見えてしまう（ユーザー報告）ため、描画ループ（render）でスキップする。
+   *  確定・キャンセルのどちらでも、commit内でnullへ戻して通常の描画に戻す。 */
+  private editingMemoId: string | null = null;
+  /** モバイルの行モード編集中に、キーボード直上へ出すアイコンツールバー
+   *  （リストの記号・インデント・確定）。編集を終えるとnullへ戻す。 */
+  private textEditorToolbar: HTMLElement | null = null;
+  /** 移動道具で、複数行の行モードのメモの1行（段落）をつかんでドラッグしている間の状態
+   *  （Notionのように、行をドラッグ＆ドロップして入れ替える）。しきい値を超えて動くまで
+   *  （activeがfalseの間）は何も変わらない。slotは、離したときに行が入るすき間
+   *  （0〜段落数、「slot番目の段落の手前」）。 */
+  private lineDrag: {
+    from: number;
+    start: Point;
+    pointer: Point;
+    active: boolean;
+    slot: number;
+    /** つかんだ行の、折り返し済みの行。ドラッグ中の見た目（ゴースト）に使う。 */
+    rows: string[];
+    /** つかんだ行のインク色。 */
+    color: string;
+    /** ドラッグ表示の基準左端・幅・フォントサイズ・行間倍率。 */
+    left: number;
+    width: number;
+    fontSize: number;
+    lineHeight: number;
+    /** 各スロットの境界のy座標（表示オフセット反映済みの正規化座標）。長さは段落数+1。 */
+    slotYs: number[];
+  } | null = null;
+  private applyEditingTextColor: ((nextColor: string) => void) | null = null;
   /** 開いているtext-editor-overlayを、フレームの状態（centerPx/scale/viewPan）が
    *  変わるたびに正しい画面位置へ再配置するための関数（openTextEditorが設定・
    *  閉じるときにnullへ戻す）。モバイルでキーボードが開くとcontainerの実サイズが
@@ -219,15 +259,11 @@ export class CircularCanvas {
    *  （1・原点）のままなので実害は無い。 */
   private lastContainerSize: { width: number; height: number } | null = null;
   private pinch: PinchState | null = null;
-  /** 複数指タップ（issue #90）の判定用。一連のマルチタッチ（最初の指が触れて
-   *  から関わった指が全て離れるまで）で同時に触れていた指の最大本数。 */
+  /** 一連のマルチタッチ（最初の指が触れてから関わった指が全て離れるまで）で同時に
+   *  触れていた指の最大本数。2本以上の指が関わったタップは、Safari純正のダブルタップ
+   *  ズームと誤認されないようonGlobalPointerUpでpreventDefaultするために使う。 */
   private tapGesturePeakCount = 0;
-  /** 上と同じ一連のマルチタッチの中で、いずれかの指がTAP_MAX_MOVEMENT_PXを
-   *  超えて動いた（＝タップではなくドラッグ）場合はfalseになる。 */
-  private tapGestureValid = true;
-  /** 今回の一連のマルチタッチが始まった時刻（最初の指が触れた瞬間）。 */
-  private tapGestureStartAt = 0;
-  private fixedBottomTextEditorOnCoarsePointer: boolean;
+  private getTextAreaInsetsPx: (() => { top: number; bottom: number }) | undefined;
   private onAutoTextToolStart: (() => void) | undefined;
   private getBackgroundTimerText: (() => string) | undefined;
   private locked = false;
@@ -239,7 +275,7 @@ export class CircularCanvas {
       this.closeWritingSession();
       this.finishTextEditingIfOpen();
       this.activePointerId = null;
-      this.endSinglePointerGesture();
+      this.endSinglePointerGesture(true);
       this.eraserHoverPoint = null;
     }
   }
@@ -253,7 +289,7 @@ export class CircularCanvas {
     this.container = container;
     this.store = store;
     this.getToolState = getToolState;
-    this.fixedBottomTextEditorOnCoarsePointer = options.fixedBottomTextEditorOnCoarsePointer ?? true;
+    this.getTextAreaInsetsPx = options.getTextAreaInsetsPx;
     this.onAutoTextToolStart = options.onAutoTextToolStart;
     this.getBackgroundTimerText = options.getBackgroundTimerText;
     this.canvas = document.createElement("canvas");
@@ -320,6 +356,92 @@ export class CircularCanvas {
   /** 現在の書き込みクランプ関数。画面全体の矩形範囲のclampをそのまま使う。 */
   private inputClamp(): (p: Point) => Point {
     return this.frame.viewportClamp();
+  }
+
+  /**
+   * 行モードの書き込み領域（正規化座標）。ガイド罫を引く範囲であり、新しい行モードの
+   * メモの配置・折り返しの右端もこの範囲に収める。画面の上下左右に余白
+   * （TEXT_AREA_MARGIN_PX）を取り、上端・下端はツールバー等のUI
+   * （getTextAreaInsetsPx）が占める高さも避ける。極端に狭い画面では、領域が
+   * 成り立たなくなる前に、使用可能領域（usableHalfExtents）全体へ戻す。
+   */
+  private lineTextArea(): { left: number; right: number; top: number; bottom: number } {
+    const s = this.frame.scale;
+    const c = this.frame.centerPx;
+    const insets = this.getTextAreaInsetsPx?.() ?? { top: 0, bottom: 0 };
+    const mx = textAreaMarginX(this.frame.width);
+    const my = TEXT_AREA_MARGIN_Y_PX;
+    const area = {
+      left: (mx - c.x) / s,
+      right: (this.frame.width - mx - c.x) / s,
+      top: (Math.max(0, insets.top) + my - c.y) / s,
+      bottom: (this.frame.height - Math.max(0, insets.bottom) - my - c.y) / s,
+    };
+    if (area.right - area.left < 0.3 || area.bottom - area.top < 0.3) {
+      const { halfW, halfH } = this.frame.usableHalfExtents();
+      return { left: -halfW, right: halfW, top: -halfH, bottom: halfH };
+    }
+    return area;
+  }
+
+  /** ページ上の行モードのテキストメモを、上端のy座標が小さい順（上から順）に返す。 */
+  private getLineMemosSorted(): TextMemo[] {
+    return this.store
+      .getActive()
+      .filter((m): m is TextMemo => m.kind === "text" && m.layout === "line")
+      .sort((a, b) => {
+        const topA = a.y + this.memoDisplayOffset(a).y - a.boxHeight / 2;
+        const topB = b.y + this.memoDisplayOffset(b).y - b.boxHeight / 2;
+        return topA - topB;
+      });
+  }
+
+  /**
+   * ページの文章の本流（行モードのテキストメモ）のうち、一番下のものを返す。
+   * 新しい文字は、位置を指定せず、常にこの末尾へ続けて書く（無ければ書き込み領域の左上から）。
+   */
+  private findFlowMemo(): TextMemo | null {
+    const memos = this.getLineMemosSorted();
+    return memos.length > 0 ? memos[memos.length - 1] : null;
+  }
+
+  /**
+   * 新しい文字を書き始める（テキスト道具で何もない所をタップしたとき、道具を選ばず
+   * キーボードで打ち始めたとき）。書く位置は指定できない：本流のメモがあればその
+   * 末尾の次の行から続け、無ければ書き込み領域の左上の行から始める。
+   * 1つのメモは1色なので、今選んでいる色が本流の最後のメモの色と違うときは、そのメモに
+   * 続けず、すぐ下の行から新しいメモ（今の色）を始める（直前の行がリストなら次の項目の
+   * 記号も引き継ぐ）。
+   * typedは、キーボードで打ち始めたときの最初の1文字。
+   */
+  private openTextAtFlowEnd(typed?: string): void {
+    const flow = this.findFlowMemo();
+    if (flow && flow.color !== this.getToolState().color) {
+      const area = this.lineTextArea();
+      const offset = this.memoDisplayOffset(flow);
+      const pitch = lineRowPitch(flow.fontSize, flow.lineHeight ?? LINE_HEIGHT_MULTIPLIER);
+      const nextPrefix = startNextLine(flow.text).slice(flow.text.length + 1);
+      const initial = nextPrefix || typed ? nextPrefix + (typed ?? "") : undefined;
+      // 下端ちょうどだと浮動小数点の誤差で上の行に丸められることがあるため、次の行の
+      // 中ほどを指す（openTextEditorが行の上端へ揃える）。
+      this.openTextEditor(
+        { x: area.left, y: flow.y + offset.y + flow.boxHeight / 2 + pitch * 0.25 },
+        null,
+        initial
+      );
+      return;
+    }
+    if (flow) {
+      const offset = this.memoDisplayOffset(flow);
+      this.openTextEditor(
+        { x: flow.x + offset.x, y: flow.y + offset.y },
+        flow,
+        startNextLine(flow.text) + (typed ?? "")
+      );
+      return;
+    }
+    const area = this.lineTextArea();
+    this.openTextEditor({ x: area.left, y: area.top }, null, typed);
   }
 
   /** 現在のウィンドウサイズに応じたメモの表示位置オフセット（正規化単位）。 */
@@ -408,13 +530,23 @@ export class CircularCanvas {
     // 更新しておくことで、離した直後も今の位置のまま途切れなく見えるようにする。
     this.eraserHoverPoint = p;
     this.ensureUndoSnapshot();
-    this.store.eraseAt(p, this.getToolState().eraserRadius / this.effectiveScale(), (m) =>
-      this.memoDisplayOffset(m)
-    );
+    const radius = this.getToolState().eraserRadius / this.effectiveScale();
+    // 行モードのテキストは行単位で消す（下のeraseTextLines）ので、ストア側では扱わない。
+    this.store.eraseAt(p, radius, (m) => this.memoDisplayOffset(m), true);
+    this.eraseTextLines(p, radius);
   }
 
   private onPointerDown = (ev: PointerEvent): void => {
     ev.preventDefault();
+    // テキスト入力中にキャンバスをタップしたら、入力を確定して閉じる。
+    // pointerdownのpreventDefault（上）はブラウザ既定のフォーカス移動を止めて
+    // しまうため、textareaが自然にblurせず開いたままになっていた（実機相当の
+    // ブラウザで再現確認）。ここで明示的にblurして、blurハンドラ（commit）に
+    // 確定させる。このタップ自体では新しい操作は始めない。
+    if (this.textEditor) {
+      this.textEditor.blur();
+      return;
+    }
     if (this.locked) return;
     // ピンチ中、または既に他の指が1本指ジェスチャーを進行させている間は、
     // 2本目以降の指をここでは扱わない——ピンチの検知・開始はキャンバスの
@@ -459,6 +591,19 @@ export class CircularCanvas {
       // 新規作成はしない（道具の役割を「動かすだけ」に絞るため）
       if (hitMemo) {
         this.state.mode = "moving";
+        // 複数行の行モードのメモは、つかんだ行をドラッグして入れ替える（メモ自体は動かさない）。
+        if (hitMemo.kind === "text") {
+          // テキストは位置を自由に動かせない（文章の流れから外れてしまうため）。できるのは
+          // 行の入れ替えだけ。入れ替えられない（1行だけ・空行・旧バージョンの自由配置）
+          // ときは何もしない。
+          const paragraphIndex = this.lineParagraphAt(hitMemo, p);
+          if (paragraphIndex === null) {
+            this.state.mode = "idle";
+            return;
+          }
+          this.startLineDrag(paragraphIndex, p);
+          return;
+        }
         this.state.movingMemoId = hitMemo.id;
         this.state.lastPoint = p;
       }
@@ -471,7 +616,9 @@ export class CircularCanvas {
         const offset = this.memoDisplayOffset(hitMemo);
         this.openTextEditor({ x: hitMemo.x + offset.x, y: hitMemo.y + offset.y }, hitMemo);
       } else {
-        this.openTextEditor(p);
+        // 何もない所をタップしても、その位置には書かない（位置を指定する自由配置は
+        // 廃止した）。ページの文章の末尾へ続けて書く。
+        this.openTextAtFlowEnd();
       }
       return;
     }
@@ -524,8 +671,6 @@ export class CircularCanvas {
     const pos = { x: ev.clientX, y: ev.clientY };
     if (this.pinchPointers.size === 0) {
       this.tapGesturePeakCount = 0;
-      this.tapGestureValid = true;
-      this.tapGestureStartAt = Date.now();
     }
     this.pinchPointers.set(ev.pointerId, { pos, downPos: pos });
     this.tapGesturePeakCount = Math.max(this.tapGesturePeakCount, this.pinchPointers.size);
@@ -554,9 +699,6 @@ export class CircularCanvas {
     const tracked = this.pinchPointers.get(ev.pointerId);
     if (!tracked) return;
     tracked.pos = { x: ev.clientX, y: ev.clientY };
-    if (distance(tracked.pos, tracked.downPos) > TAP_MAX_MOVEMENT_PX) {
-      this.tapGestureValid = false;
-    }
     if (this.pinchPointers.size >= 2) {
       ev.preventDefault();
     }
@@ -592,26 +734,15 @@ export class CircularCanvas {
       this.state.mode = "idle";
       this.pinch = null;
     }
-    if (this.pinchPointers.size > 0) return; // まだ他の指が残っている
-    if (this.getToolState().tool !== "move") return;
-
-    const withinDuration = Date.now() - this.tapGestureStartAt <= TAP_MAX_DURATION_MS;
-    if (!this.tapGestureValid || !withinDuration || this.tapGesturePeakCount < 2) return;
-
-    if (this.tapGesturePeakCount === 2) {
-      this.store.undo();
-    } else {
-      this.store.redo(); // 3本以上はredo扱い（実機での余分な指の巻き込みに寛容にする）
-    }
-    // undo()と同じ理由（そちらのコメント参照）で、書き込みセッションを打ち切る。
-    this.closeWritingSession();
+    // （以前はここで2本指タップ=Undo・3本指タップ=Redoを判定していたが、発見しづらい
+    // ため廃止した。取り消し・やり直しは道具バーのボタンとキーボードで行う。）
   };
 
   /** 2本目の指が乗った瞬間に呼ぶ。進行中の1本指ジェスチャー（描画・消しゴム・
    *  なぞる・移動）があれば打ち切ってからピンチの起点を記録する。 */
   private beginPinch(): void {
     if (this.state.mode !== "idle" && this.state.mode !== "pinching") {
-      this.endSinglePointerGesture();
+      this.endSinglePointerGesture(true);
     }
     this.activePointerId = null; // 1本指ジェスチャーはピンチに譲る
     const [a, b] = [...this.pinchPointers.values()].map((p) => p.pos);
@@ -662,7 +793,14 @@ export class CircularCanvas {
 
   /** 1本指ジェスチャー（描画・消しゴム・移動）の後始末。onPointerUpと
    *  「2本目の指が乗って途中でピンチに切り替わった」場合の両方から呼ぶ。 */
-  private endSinglePointerGesture(): void {
+  private endSinglePointerGesture(cancelled = false): void {
+    if (this.lineDrag) {
+      if (!cancelled) this.finishLineDrag();
+      this.lineDrag = null;
+    }
+    if (this.state.mode === "erasing" && !cancelled) {
+      this.reflowLineMemos();
+    }
     if (this.state.mode === "drawing") {
       // ドラッグせずに離した一瞬のクリックは、線としては何も描けていない
       // （renderMemoAtがstroke.length<2のメモを描画対象から除外する）ため、
@@ -677,16 +815,343 @@ export class CircularCanvas {
     this.state.lastPoint = null;
   }
 
+  /** ページ上のすべての行モードのテキストメモから、段落（改行区切りの1行）を上から順に集める。 */
+  private collectFlowParagraphs(): {
+    memos: TextMemo[];
+    paragraphs: { memoId: string; localIndex: number; text: string; color: string; rows: string[] }[];
+  } | null {
+    const memos = this.getLineMemosSorted();
+    if (memos.length === 0) return null;
+    const paragraphs: { memoId: string; localIndex: number; text: string; color: string; rows: string[] }[] = [];
+    for (const memo of memos) {
+      const groups = groupRowsByParagraph(memo.text, memo.textLines);
+      if (!groups) return null;
+      const lines = memo.text.split("\n");
+      for (let i = 0; i < groups.length; i++) {
+        paragraphs.push({
+          memoId: memo.id,
+          localIndex: i,
+          text: lines[i] ?? "",
+          color: memo.color,
+          rows: groups[i],
+        });
+      }
+    }
+    return { memos, paragraphs };
+  }
+
   /**
-   * タップした位置にテキスト入力用の<textarea>を重ねて表示する。円のクリップの外に
+   * 行モードのメモのうち、タップ位置pにある行（段落）の通し番号（ページ全体での番号）を返す。
+   * ページ全体で1行しか無い・行モードでない・空行をつかんだ・データが食い違っている場合はnull。
+   */
+  private lineParagraphAt(memo: TextMemo, p: Point): number | null {
+    if (memo.layout !== "line") return null;
+    const flow = this.collectFlowParagraphs();
+    if (!flow || flow.paragraphs.length < 2) return null;
+    const groups = groupRowsByParagraph(memo.text, memo.textLines);
+    if (!groups) return null;
+    const pitch = lineRowPitch(memo.fontSize, memo.lineHeight ?? LINE_HEIGHT_MULTIPLIER);
+    const offset = this.memoDisplayOffset(memo);
+    const top = memo.y + offset.y - memo.boxHeight / 2;
+    const row = Math.min(memo.textLines.length - 1, Math.max(0, Math.floor((p.y - top) / pitch)));
+    const paragraphs = memo.text.split("\n");
+    let rowsSoFar = 0;
+    for (let i = 0; i < groups.length; i++) {
+      rowsSoFar += groups[i].length;
+      if (row < rowsSoFar) {
+        if (paragraphs[i].trim() === "") return null;
+        const globalIdx = flow.paragraphs.findIndex((item) => item.memoId === memo.id && item.localIndex === i);
+        return globalIdx >= 0 ? globalIdx : null;
+      }
+    }
+    return null;
+  }
+
+  /** 行（段落）のドラッグ＆ドロップを始める（まだ動かしておらず、メモは何も変わらない）。 */
+  private startLineDrag(paragraphIndex: number, p: Point): void {
+    const flow = this.collectFlowParagraphs();
+    if (!flow) return;
+    const first = flow.memos[0];
+    const fontSize = first.fontSize;
+    const lineHeight = first.lineHeight ?? LINE_HEIGHT_MULTIPLIER;
+    const pitch = lineRowPitch(fontSize, lineHeight);
+    const firstOffset = this.memoDisplayOffset(first);
+    const left = first.x + firstOffset.x - first.boxWidth / 2;
+    const top = first.y + firstOffset.y - first.boxHeight / 2;
+    const width = Math.max(...flow.memos.map((m) => m.boxWidth));
+    const slotYs = [top];
+    for (const item of flow.paragraphs) {
+      slotYs.push(slotYs[slotYs.length - 1] + item.rows.length * pitch);
+    }
+    const target = flow.paragraphs[paragraphIndex];
+    if (!target) return;
+    this.lineDrag = {
+      from: paragraphIndex,
+      start: p,
+      pointer: p,
+      active: false,
+      slot: paragraphIndex,
+      rows: target.rows,
+      color: target.color,
+      left,
+      width,
+      fontSize,
+      lineHeight,
+      slotYs,
+    };
+  }
+
+  /** ドラッグ中のポインタ位置から、行が入るすき間（slot）を更新する。 */
+  private updateLineDrag(p: Point): void {
+    const d = this.lineDrag;
+    if (!d) return;
+    d.pointer = p;
+    if (!d.active) {
+      // 小さな手ぶれ・単なるタップでは入れ替えを始めない。
+      if (distance(p, d.start) * this.effectiveScale() < 4) return;
+      d.active = true;
+    }
+    let best = 0;
+    for (let k = 1; k < d.slotYs.length; k++) {
+      if (Math.abs(d.slotYs[k] - p.y) < Math.abs(d.slotYs[best] - p.y)) best = k;
+    }
+    d.slot = best;
+  }
+
+  /** 行をドロップした位置に合わせて、ページ全体の行の並びを入れ替える（異なる色のブロック間も移動可能）。 */
+  private finishLineDrag(): void {
+    const d = this.lineDrag;
+    if (!d || !d.active) return;
+    const flow = this.collectFlowParagraphs();
+    if (!flow) return;
+    const n = flow.paragraphs.length;
+    if (d.from < 0 || d.from >= n || d.slot < 0 || d.slot > n) return;
+    if (d.slot === d.from || d.slot === d.from + 1) return;
+    const next = flow.paragraphs.map((item) => ({ text: item.text, color: item.color }));
+    const [moved] = next.splice(d.from, 1);
+    next.splice(d.slot > d.from ? d.slot - 1 : d.slot, 0, moved);
+    this.ensureUndoSnapshot();
+    this.applyFlowParagraphs(flow.memos, next, { restartAtOne: true });
+  }
+
+  /**
+   * ページ上の行モードの段落と色の並びから、連続する同色の段落をテキストメモにまとめ直し、
+   * 書き込み領域の上端から隙間なく縦に積み直す（番号付きリストの連番も全体をまたいで振り直す）。
+   */
+  private applyFlowParagraphs(
+    existingMemos: TextMemo[],
+    items: { text: string; color: string }[],
+    options: { restartAtOne?: boolean } = {}
+  ): void {
+    const trimmed = [...items];
+    while (trimmed.length > 0 && isBlankText(trimmed[trimmed.length - 1].text)) {
+      trimmed.pop();
+    }
+    if (trimmed.length === 0) {
+      for (const m of existingMemos) this.store.deleteMemo(m.id);
+      return;
+    }
+    const combinedText = trimmed.map((it) => it.text).join("\n");
+    const renumberedLines = renumber({ value: combinedText, start: 0, end: 0 }, options).value.split("\n");
+
+    const runs: { color: string; texts: string[] }[] = [];
+    for (let i = 0; i < trimmed.length; i++) {
+      const color = trimmed[i].color;
+      const text = renumberedLines[i] ?? trimmed[i].text;
+      const last = runs[runs.length - 1];
+      if (last && last.color === color) {
+        last.texts.push(text);
+      } else {
+        runs.push({ color, texts: [text] });
+      }
+    }
+
+    const area = this.lineTextArea();
+    const first = existingMemos[0];
+    const fontSize = first?.fontSize ?? this.getToolState().fontSize;
+    const lineHeight = first?.lineHeight ?? LINE_HEIGHT_MULTIPLIER;
+    const pitch = lineRowPitch(fontSize, lineHeight);
+    const firstOff = first ? this.memoDisplayOffset(first) : { x: 0, y: 0 };
+    const left = first
+      ? clampLineLeft(first.x + firstOff.x - first.boxWidth / 2, area.left, area.right, fontSize)
+      : clampLineLeft(area.left, area.left, area.right, fontSize);
+    let currentTop = clampRowTop(snapToRowTop(area.top, pitch), pitch, pitch, area.top, area.bottom);
+    const wrapRefPx = Math.max(minLineWrapWidthPx(fontSize), (area.right - left) * REFERENCE_RADIUS);
+    const extents = this.frame.usableHalfExtents();
+
+    for (let i = 0; i < runs.length; i++) {
+      const run = runs[i];
+      const runText = run.texts.join("\n");
+      const { lines, contentWidthPx } = layoutText(this.ctx, runText, fontSize, wrapRefPx);
+      const { width, height } = normalizedBoxSize(
+        fontSize,
+        lines.length,
+        Math.max(contentWidthPx, fontSize * 2),
+        lineHeight
+      );
+      const position = { x: left + width / 2, y: currentTop + height / 2 };
+      currentTop += height;
+
+      if (i < existingMemos.length) {
+        const target = existingMemos[i];
+        const off = this.memoDisplayOffset(target);
+        const samePos =
+          Math.abs(target.x + off.x - position.x) < 1e-6 &&
+          Math.abs(target.y + off.y - position.y) < 1e-6 &&
+          Math.abs(target.boxWidth - width) < 1e-6 &&
+          Math.abs(target.boxHeight - height) < 1e-6;
+        if (target.text === runText && target.color === run.color && samePos) {
+          continue;
+        }
+        this.store.materializeDisplayOffset(target.id, off.x, off.y, extents);
+        this.store.updateTextMemo(target.id, runText, lines, width, height, {
+          position,
+          color: run.color,
+          layout: "line",
+          align: "left",
+        });
+      } else {
+        this.store.createTextMemo(
+          position,
+          runText,
+          lines,
+          fontSize,
+          width,
+          height,
+          { color: run.color, align: "left", lineHeight, layout: "line" },
+          Date.now(),
+          extents
+        );
+      }
+    }
+    for (let i = runs.length; i < existingMemos.length; i++) {
+      this.store.deleteMemo(existingMemos[i].id);
+    }
+  }
+
+  /** ページ上の行モードのメモ群を、上端から隙間・重なりなく積み直し、隣接する同色ブロックを統合する。 */
+  private reflowLineMemos(): void {
+    const flow = this.collectFlowParagraphs();
+    if (!flow) return;
+    this.applyFlowParagraphs(
+      flow.memos,
+      flow.paragraphs.map((p) => ({ text: p.text, color: p.color }))
+    );
+  }
+
+  /**
+   * 行モードのメモの内容をtextに置き換える。メモの左端・上端は動かさず、折り返しと
+   * 大きさを計算し直す（行単位の消去で使う）。呼び出し側でensureUndoSnapshotしておくこと。
+   */
+  private applyLineMemoText(memo: TextMemo, text: string): void {
+    const offset = this.memoDisplayOffset(memo);
+    const left = memo.x + offset.x - memo.boxWidth / 2;
+    const top = memo.y + offset.y - memo.boxHeight / 2;
+    const area = this.lineTextArea();
+    const wrapRefPx = Math.max(minLineWrapWidthPx(memo.fontSize), (area.right - left) * REFERENCE_RADIUS);
+    const { lines, contentWidthPx } = layoutText(this.ctx, text, memo.fontSize, wrapRefPx);
+    const { width, height } = normalizedBoxSize(
+      memo.fontSize,
+      lines.length,
+      Math.max(contentWidthPx, memo.fontSize * 2),
+      memo.lineHeight ?? LINE_HEIGHT_MULTIPLIER
+    );
+    this.store.materializeDisplayOffset(memo.id, offset.x, offset.y, this.frame.usableHalfExtents());
+    this.store.updateTextMemo(memo.id, text, lines, width, height, {
+      position: { x: left + width / 2, y: top + height / 2 },
+    });
+  }
+
+  /**
+   * 消しゴムで、行モードのテキストメモのうち、消しゴムの円に触れた行（段落）だけを
+   * 消す（文章全体が1つのメモなので、触れた1か所でページの文章がすべて消えないように）。
+   * 消した行は空行として残し、他の行は動かさない（詰めてしまうと、ドラッグし続ける間に
+   * 下の行が次々と消しゴムの下へ滑り込んで消えてしまうため）。末尾の空行は取り除き、
+   * すべての行が消えたらメモごと削除する。
+   * 行の幅は、そのメモの箱の幅全体として扱う（短い行の右側の空白に触れても、その行を消す）。
+   */
+  private eraseTextLines(center: Point, radius: number): void {
+    for (const memo of [...this.store.getActive()]) {
+      if (memo.kind !== "text" || memo.layout !== "line") continue;
+      const groups = groupRowsByParagraph(memo.text, memo.textLines);
+      if (!groups) continue;
+      const pitch = lineRowPitch(memo.fontSize, memo.lineHeight ?? LINE_HEIGHT_MULTIPLIER);
+      const offset = this.memoDisplayOffset(memo);
+      const localCenter = { x: center.x - offset.x, y: center.y - offset.y };
+      const top = memo.y - memo.boxHeight / 2;
+      const touched: boolean[] = [];
+      let row = 0;
+      for (const g of groups) {
+        let hit = false;
+        for (let r = 0; r < g.length; r++, row++) {
+          const rowBox = { x: memo.x, y: top + (row + 0.5) * pitch, width: memo.boxWidth, height: pitch };
+          if (circleIntersectsBox(localCenter, radius, rowBox)) hit = true;
+        }
+        touched.push(hit);
+      }
+      if (!touched.some(Boolean)) continue;
+      const text = stripTrailingBlankLines(
+        memo.text
+          .split("\n")
+          .map((line, i) => (touched[i] ? "" : line))
+          .join("\n")
+      );
+      if (isBlankText(text)) {
+        this.store.deleteMemo(memo.id);
+      } else if (text !== memo.text) {
+        this.applyLineMemoText(memo, text);
+      }
+    }
+  }
+
+  /** ドラッグ中の行（ポインタに追従する半透明のゴースト）と、ドロップ先を示す線を描く。
+   *  中心を原点にtranslate/scale済みのコンテキストに対して呼ぶ。 */
+  private renderLineDrag(ctx: CanvasRenderingContext2D, radius: number, dark: boolean): void {
+    const d = this.lineDrag;
+    if (!d || !d.active) return;
+
+    // ドロップ先を示す線（行と行のすき間）。
+    const indicatorY = d.slotYs[d.slot] * radius;
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
+    ctx.strokeStyle = dark ? "oklch(75% 0.12 250)" : "oklch(58% 0.17 250)";
+    ctx.lineWidth = 2.5 / this.viewZoom;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo((d.left - 0.02) * radius, indicatorY);
+    ctx.lineTo((d.left + Math.max(d.width, 0.5) + 0.02) * radius, indicatorY);
+    ctx.stroke();
+
+    // ポインタに追従するゴースト。
+    const fontPx = fontPxForRender(d.fontSize, radius);
+    const rowHeight = fontPx * d.lineHeight;
+    ctx.globalAlpha = 0.6;
+    ctx.fillStyle = resolveInkColor(d.color, dark);
+    ctx.font = `${fontPx}px ${TEXT_FONT_FAMILY}`;
+    ctx.textAlign = "left";
+    const rowBaseline = rowTextBaseline(ctx, rowHeight);
+    ctx.textBaseline = rowBaseline.baseline;
+    const x = (d.left + (d.pointer.x - d.start.x)) * radius;
+    let y = d.pointer.y * radius - (d.rows.length * rowHeight) / 2 + rowBaseline.offset;
+    for (const row of d.rows) {
+      ctx.fillText(row, x, y);
+      y += rowHeight;
+    }
+    ctx.restore();
+  }
+
+  /**
+   * 紙の上の行（lineLeft/lineTop）に、テキスト入力用の<textarea>を重ねて表示する。円のクリップの外に
    * 出しても構わないよう画面固定(position:fixed)で配置し、blurした時点で内容を
-   * 確定する。Enterは確定（≒blur）、Shift+Enterは改行（ユーザー指示）。
+   * 確定する。Enter・Shift+Enterは改行で、確定はEscape・外タップ・モバイルの✓。
    * editingMemoを渡すと既存のテキストメモの編集になる：元の位置・見た目（フォントサイズ・色）を
    * そのまま使い、内容だけ書き換えて更新する。空にして確定した場合はメモごと削除する。
-   * Escapeで閉じた場合はキャンセル（新規なら何も作らず、編集なら元の内容のまま）。
+   * 旧バージョンの自由配置のメモを渡した場合は、行モードのメモとして書き直す。
    * initialTextは、何も選択していない状態でキーボード入力を始めたときに、その最初の
-   * 1文字を最初から入った状態で開くために使う（onGlobalKeyDown参照。editingMemoと
-   * 同時には使わない）。
+   * 1文字を最初から入った状態で開くために使う（onGlobalKeyDown参照）。editingMemoと
+   * 同時に渡した場合は、既存メモの内容ではなくinitialTextで開く（行モードで、既存の
+   * メモの続きを書き始めるときに、末尾へ改行を足した内容で開くために使う）。
    * focus()は必ず、呼び出し元のポインタ・キー入力イベントと同じ同期的な呼び出し
    * スタックの中で行う（後述のfocusEl、rAFやsetTimeout等を挟まない）。理由は2つ：
    * ①モバイル（特にiOS Safari系）はユーザー操作のイベントハンドラ内で同期的に
@@ -705,26 +1170,46 @@ export class CircularCanvas {
     // undo/redo、undoSnapshotTaken参照）。Escapeで取り消した場合はストアを
     // 一切書き換えないため、スナップショットも積まれない。
     this.undoSnapshotTaken = false;
+    let currentEditingMemo: TextMemo | null = editingMemo;
+    const isAppendingToFlow = editingMemo !== null && initialText !== undefined;
     const { color: toolColor, fontSize: toolFontSize } = this.getToolState();
-    const color = editingMemo?.color ?? toolColor;
-    const fontSize = editingMemo?.fontSize ?? toolFontSize;
-    const align = editingMemo?.align ?? "center";
-    const lineHeight = editingMemo?.lineHeight ?? LINE_HEIGHT_MULTIPLIER;
+    let color = currentEditingMemo?.color ?? toolColor;
+    const fontSize = currentEditingMemo?.fontSize ?? toolFontSize;
+    const lineHeight = currentEditingMemo?.lineHeight ?? LINE_HEIGHT_MULTIPLIER;
     const scaleAtOpen = this.effectiveScale();
     const fontPx = fontPxForRender(fontSize, scaleAtOpen);
 
+    // メモの左端(lineLeft)と上端(lineTop)（どちらも正規化座標）。新規はanchor
+    // （openTextAtFlowEnd：書き込み領域の左上）の行に揃える。既存メモは今の表示位置のまま。
+    // 確定時もこの2つを固定したまま、幅・高さだけが変わる。旧バージョンの自由配置
+    // （中心基準・行グリッド外）のメモを開いた場合も、箱の左端・上端を引き継ぎ、
+    // 上端だけ最寄りの行へ揃えて行モードのメモとして書き直す。
+    const rowPitch = lineRowPitch(fontSize, lineHeight);
+    const area = this.lineTextArea();
+    let lineLeft: number;
+    let lineTop: number;
+    if (currentEditingMemo) {
+      const off = this.memoDisplayOffset(currentEditingMemo);
+      const rawLeft = currentEditingMemo.x + off.x - currentEditingMemo.boxWidth / 2;
+      lineLeft =
+        currentEditingMemo.layout === "line"
+          ? clampLineLeft(rawLeft, area.left, area.right, fontSize)
+          : rawLeft;
+      lineTop = currentEditingMemo.y + off.y - currentEditingMemo.boxHeight / 2;
+      if (currentEditingMemo.layout !== "line") lineTop = Math.round(lineTop / rowPitch) * rowPitch;
+    } else {
+      lineLeft = clampLineLeft(anchor.x, area.left, area.right, fontSize);
+      const minTop = Math.ceil(area.top / rowPitch) * rowPitch;
+      lineTop = Math.max(minTop, snapToRowTop(anchor.y, rowPitch));
+    }
+
     const el = document.createElement("textarea");
-    // モバイル（issue #87：キーボード直上に固定表示する分岐）では、紙の上に
-    // 直接書き込んでいるのではなくキャンバスから切り離されたUI部品であることが
-    // 見た目からも伝わるよう、下部操作パネル（.control-panel）と同じカード風の
-    // スタイルに切り替える（--fixed-bottom、ユーザー指示）。
-    const useFixedBottomEditor = isCoarsePointerDevice() && this.fixedBottomTextEditorOnCoarsePointer;
-    el.className = useFixedBottomEditor
-      ? "text-editor-overlay text-editor-overlay--fixed-bottom"
-      : "text-editor-overlay";
+    // 紙の上へそのまま書き込むので、枠なし・透明の入力欄にして、確定後の見た目と
+    // 重なるようにする。
+    el.className = "text-editor-overlay";
     el.rows = 1;
     el.placeholder = "書き込む...";
-    el.value = editingMemo?.text ?? initialText ?? "";
+    el.value = initialText ?? currentEditingMemo?.text ?? "";
     el.style.color = resolveInkColor(color);
     el.style.fontFamily = TEXT_FONT_FAMILY;
     // iOS Safari系は、フォーカスした入力欄のfont-sizeが16px未満だと「読みやすく
@@ -735,24 +1220,66 @@ export class CircularCanvas {
     // ×実効スケール）が16pxを大きく下回るため常に発火していた。表示上の
     // font-sizeだけ16px以上に底上げしてズームそのものを起こさせないようにする
     // ——確定後にメモとして保存される文字サイズ・折り返し幅はcanvas側の計測
-    // （fontSize・measureTextBoxWidthPx、共にこのDOM要素のstyleとは独立）で
-    // 決まるため、ここでの底上げは編集中の見た目だけに影響し、確定後の見た目には
-    // 影響しない。
+    // （fontSize・layoutText、共にこのDOM要素のstyleとは独立）で決まる。
+    // 底上げした分は、transform:scaleで縮めて、画面上の文字の大きさと行の高さを
+    // 確定後（行グリッド）と一致させる。iOSのズーム判定はcomputed font-sizeだけを
+    // 見るため、transformで見た目を縮めてもズームは起きない。
     const displayFontPx = Math.max(fontPx, 16);
+    const lineScaleK = fontPx / displayFontPx;
     el.style.fontSize = `${displayFontPx}px`;
     el.style.lineHeight = `${lineHeight}`;
-    el.style.textAlign = align;
-    // resizeToContent内の幅測定(measureTextBoxWidthPx)にfontSizeをそのまま渡すと、
-    // 上の底上げが効くケース（scaleAtOpenがREFERENCE_RADIUSより小さい典型的な
-    // モバイル画面）で、実際にdisplayFontPxで描画される文字より狭い幅で計算されて
-    // しまい、1行に収まるはずの文章が編集中だけtextarea内で折り返される／はみ出して
-    // 見える不具合になる（PRレビュー指摘）。measureTextBoxWidthPxは基準円スケールの
-    // 値を受け取りresizeToContent側で実際のscaleを掛けて画面px化する仕組みのため、
-    // displayFontPx（画面px）をその逆変換で基準円スケール相当に戻した値を使うことで、
-    // 編集中の幅計算と実際の描画フォントサイズを一致させる。
-    const widthMeasureFontSize = Math.max(fontSize, (displayFontPx * REFERENCE_RADIUS) / scaleAtOpen);
     document.body.appendChild(el);
     this.textEditor = el;
+    this.editingMemoId = currentEditingMemo?.id ?? null;
+
+    // リスト記法（textList.ts）の編集結果をtextareaへ反映する。el.valueを直接
+    // 書き換えるとブラウザ標準のundo（Cmd+Z）の履歴が消えるため、変わった範囲だけを
+    // execCommandで挿入し、使えない環境ではvalueの書き換えにフォールバックする。
+    let applyingEdit = false;
+    const readState = (): EditState => ({ value: el.value, start: el.selectionStart, end: el.selectionEnd });
+    const applyEdit = (next: EditState): void => {
+      const cur = readState();
+      if (next.value !== cur.value) {
+        const max = Math.min(cur.value.length, next.value.length);
+        let head = 0;
+        while (head < max && cur.value[head] === next.value[head]) head++;
+        let tail = 0;
+        while (
+          tail < max - head &&
+          cur.value[cur.value.length - 1 - tail] === next.value[next.value.length - 1 - tail]
+        ) {
+          tail++;
+        }
+        const replacement = next.value.slice(head, next.value.length - tail);
+        applyingEdit = true;
+        el.setSelectionRange(head, cur.value.length - tail);
+        const ok =
+          replacement === ""
+            ? document.execCommand("delete")
+            : document.execCommand("insertText", false, replacement);
+        if (!ok || el.value !== next.value) {
+          el.value = next.value;
+          el.dispatchEvent(new Event("input"));
+        }
+        applyingEdit = false;
+      }
+      el.setSelectionRange(next.start, next.end);
+    };
+
+    // モバイル（ソフトキーボード）では、キーボード直上にアイコンツールバー（リストの
+    // 記号・インデント・確定の✓）を出す。確定は外タップ・✓・Escapeで行う。
+    let toolbarEl: HTMLElement | null = null;
+    if (isCoarsePointerDevice()) {
+      toolbarEl = this.buildTextEditorToolbar({
+        bullet: () => applyEdit(toggleMarker(readState(), "bullet")),
+        number: () => applyEdit(toggleMarker(readState(), "dot")),
+        indent: () => applyEdit(indentLines(readState())),
+        outdent: () => applyEdit(outdentLines(readState())),
+        done: () => el.blur(),
+      });
+      document.body.appendChild(toolbarEl);
+      this.textEditorToolbar = toolbarEl;
+    }
 
     // モバイルでtextareaにフォーカスすると、ブラウザが「フォーカスした要素が画面内に
     // 収まるように」ページ全体を自動でスクロールすることがある。このtextareaは
@@ -801,15 +1328,13 @@ export class CircularCanvas {
       this.restoreBodyScroll = null;
     };
 
-    // 内容の実際の幅・高さに合わせてtextareaのサイズと位置を更新する（可変幅——
-    // ユーザー指示：短い一言でも余白だらけの箱にならないよう、逆に長めの文でも
-    // すぐ折り返さないよう、打った内容に応じて幅を変える）。アンカー点
-    // (screenX, screenY)は毎回、その時点のcanvasRect/frame.centerPx/viewPan/
-    // scaleから計算し直す——1回だけ計算してクロージャに固定していると、
-    // モバイルでキーボードが開いてcontainerのサイズが変わりframeが動いた後も
-    // 古い位置のまま取り残されてしまう（ユーザー指摘：タップ位置から離れた所に
-    // 表示される）。呼び出し元（入力のたびとResizeObserver）の両方から同じ
-    // 関数を呼び直すことで、常に今のフレームに対して正しい位置に揃える。
+    // 紙の上の位置（lineLeft/lineTop）に合わせてtextareaのサイズと位置を更新する。
+    // 位置は毎回、その時点のcanvasRect/frame.centerPx/viewPan/scaleから計算し直す——
+    // 1回だけ計算してクロージャに固定していると、モバイルでキーボードが開いて
+    // containerのサイズが変わりframeが動いた後も古い位置のまま取り残されてしまう
+    // （ユーザー指摘：タップ位置から離れた所に表示される）。呼び出し元（入力のたびと
+    // ResizeObserver）の両方から同じ関数を呼び直すことで、常に今のフレームに対して
+    // 正しい位置に揃える。
     //
     // visualViewport.offsetLeft/offsetTopの補正について：モバイルでキーボードを
     // 開く際、ブラウザは「フォーカスした要素をキーボードの上に収める」ため
@@ -823,74 +1348,92 @@ export class CircularCanvas {
     // 飛ぶが上半分は少しのズレで済む＝パン量の違いと一致）。
     // window.visualViewport.offsetLeft/offsetTopはこのパン量そのものなので、
     // 加算して補正する（MDN/web.devで案内されている標準的な対処）。
+    //
+    // 幅は、確定時の折り返し幅と同じ「書き込み領域の右端まで」。高さだけ内容に
+    // 応じて伸びる。ソフトキーボードで見えている範囲（visual viewport）が縮んだ
+    // ときは、その中に収まるようクランプする。
     const resizeToContent = () => {
       const canvasRect = this.canvas.getBoundingClientRect();
       const scale = this.effectiveScale();
       const vv = window.visualViewport;
       const viewportOffsetX = vv?.offsetLeft ?? 0;
       const viewportOffsetY = vv?.offsetTop ?? 0;
-      const toScreenPx = (referencePx: number) => (referencePx / REFERENCE_RADIUS) * scale;
-      const screenX = canvasRect.left + this.frame.centerPx.x + this.viewPan.x + anchor.x * scale + viewportOffsetX;
-      const screenY = canvasRect.top + this.frame.centerPx.y + this.viewPan.y + anchor.y * scale + viewportOffsetY;
-
-      // 文字が空の間はプレースホルダー（「書き込む...」）が見えている。el.valueの
-      // ままだと空文字列の幅（≒0）で箱が測られてしまい、プレースホルダーが
-      // 箱の中で折り返されてしまう（ユーザー報告）ため、空の間はプレースホルダー
-      // 自体の幅で測る。
-      const boxWidthPx = toScreenPx(measureTextBoxWidthPx(this.ctx, el.value || el.placeholder, widthMeasureFontSize));
-      el.style.width = `${boxWidthPx}px`;
-      el.style.height = "auto";
-      const h = el.scrollHeight;
-      el.style.height = `${h}px`;
-
-      // ソフトキーボードが開くと、実際に見えている範囲（visual viewport）が
-      // 画面下側から縮む。上記のscreenX/screenYはタップ位置をそのまま画面座標に
-      // 変換しただけなので、画面下部をタップした直後にキーボードが開くと、
-      // その縮んだ「見えている範囲」の外＝キーボードの裏に配置されてしまう
-      // ことがある（ユーザー報告：画面下部でテキストを追加しようとすると
-      // キーボードによりさらに下へ飛んでいく）。最終的な位置を、実際に見えて
-      // いる範囲（visualViewportの現在のoffsetLeft/Top〜+width/height、
-      // 取得できない環境ではwindow.innerWidth/Heightにフォールバック）の中に
-      // 収まるようクランプする——入力欄自体がその範囲より大きい極端なケースは
-      // 見えている範囲の左上に揃えるだけにする。
-      const margin = 8;
-      const visibleWidth = vv?.width ?? window.innerWidth;
-      const visibleHeight = vv?.height ?? window.innerHeight;
-
-      const minLeft = viewportOffsetX + margin;
-      const maxLeft = viewportOffsetX + visibleWidth - boxWidthPx - margin;
-      const minTop = viewportOffsetY + margin;
-      const maxTop = viewportOffsetY + visibleHeight - h - margin;
-
-      let left: number;
-      let top: number;
-      if (useFixedBottomEditor) {
-        // モバイル（ソフトキーボードが出るデバイス）では、タップ位置の上下パンに
-        // 追従させるのではなく、常に画面（visualViewport）下部・キーボード直上の
-        // 中央に固定表示する（issue #87：iOS標準のキーボード回避パンにタップ位置
-        // 追従の位置計算が引きずられ、意図しない場所に飛んで見える不具合の対策）。
-        // タップ位置(anchor)自体は、確定後のメモの挿入位置としてのみ使う
-        // （commit内のsafeAnchor参照）。
-        const centeredLeft = viewportOffsetX + (visibleWidth - boxWidthPx) / 2;
-        left = maxLeft >= minLeft ? Math.min(Math.max(centeredLeft, minLeft), maxLeft) : minLeft;
-        top = maxTop >= minTop ? maxTop : minTop;
-      } else {
-        left = maxLeft >= minLeft ? Math.min(Math.max(screenX - boxWidthPx / 2, minLeft), maxLeft) : minLeft;
-        top = maxTop >= minTop ? Math.min(Math.max(screenY - h / 2, minTop), maxTop) : minTop;
+      {
+        const lineMargin = 8;
+        const visW = vv?.width ?? window.innerWidth;
+        const visH = vv?.height ?? window.innerHeight;
+        const wrapScreenPx = Math.max(
+          (minLineWrapWidthPx(fontSize) / REFERENCE_RADIUS) * scale,
+          (this.lineTextArea().right - lineLeft) * scale
+        );
+        const widthScreenPx = Math.min(wrapScreenPx, visW - lineMargin * 2);
+        el.style.width = `${widthScreenPx / lineScaleK}px`;
+        el.style.height = "auto";
+        const contentH = el.scrollHeight;
+        const toolbarH = toolbarEl ? toolbarEl.offsetHeight : 0;
+        const maxVisualH = Math.max(fontPx * lineHeight, visH - toolbarH - lineMargin * 2);
+        const clampedContentH = Math.min(contentH, maxVisualH / lineScaleK);
+        el.style.height = `${clampedContentH}px`;
+        el.style.overflowY = contentH > clampedContentH + 1 ? "auto" : "hidden";
+        const visualH = clampedContentH * lineScaleK;
+        const lineScreenX = canvasRect.left + this.frame.centerPx.x + this.viewPan.x + lineLeft * scale + viewportOffsetX;
+        const lineScreenY = canvasRect.top + this.frame.centerPx.y + this.viewPan.y + lineTop * scale + viewportOffsetY;
+        const lMin = viewportOffsetX + lineMargin;
+        const lMax = viewportOffsetX + visW - widthScreenPx - lineMargin;
+        const tMin = viewportOffsetY + lineMargin;
+        const tMax = viewportOffsetY + visH - toolbarH - visualH - lineMargin;
+        if (toolbarEl) {
+          toolbarEl.style.left = `${viewportOffsetX}px`;
+          toolbarEl.style.width = `${visW}px`;
+          toolbarEl.style.top = `${viewportOffsetY + visH - toolbarH}px`;
+        }
+        el.style.transformOrigin = "0 0";
+        el.style.transform = lineScaleK < 1 ? `scale(${lineScaleK})` : "";
+        el.style.left = `${lMax >= lMin ? Math.min(Math.max(lineScreenX, lMin), lMax) : lMin}px`;
+        el.style.top = `${tMax >= tMin ? Math.min(Math.max(lineScreenY, tMin), tMax) : tMin}px`;
       }
-
-      el.style.left = `${left}px`;
-      el.style.top = `${top}px`;
     };
     resizeToContent();
     el.addEventListener("input", resizeToContent);
+    // 行頭の「- 」「* 」を打った直後に「・ 」へ変換する（IME変換中の
+    // スペースはinsertCompositionTextなので対象外）。
+    el.addEventListener("input", (iev) => {
+      if (applyingEdit) return;
+      const ie = iev as InputEvent;
+      if (ie.inputType !== "insertText" || ie.data !== " ") return;
+      const converted = autoConvertBullet(readState());
+      if (converted) applyEdit(converted);
+    });
     this.repositionTextEditor = resizeToContent;
+    this.applyEditingTextColor = (nextColor: string) => {
+      if (this.textEditor !== el) return;
+      if (
+        isAppendingToFlow &&
+        currentEditingMemo &&
+        nextColor !== currentEditingMemo.color &&
+        el.value.startsWith(`${currentEditingMemo.text}\n`)
+      ) {
+        const added = el.value.slice(currentEditingMemo.text.length + 1);
+        const prevOff = this.memoDisplayOffset(currentEditingMemo);
+        const prevBottom = currentEditingMemo.y + prevOff.y + currentEditingMemo.boxHeight / 2;
+        lineTop = snapToRowTop(prevBottom + rowPitch * 0.25, rowPitch);
+        currentEditingMemo = null;
+        this.editingMemoId = null;
+        color = nextColor;
+        el.style.color = resolveInkColor(color);
+        el.value = added;
+        el.setSelectionRange(el.value.length, el.value.length);
+        resizeToContent();
+        this.render();
+        return;
+      }
+      color = nextColor;
+      el.style.color = resolveInkColor(color);
+      this.render();
+    };
     // 開いた時点でまだ読み込み中のWebフォント（Klee One/Noto Sans JP）があると、
-    // 幅の計測（widthMeasureFontSize、上のmeasureTextBoxWidthPx呼び出し）が
-    // フォールバックフォントの狭い字幅で行われてしまい、後から本来のフォントに
-    // 差し替わった拍子にプレースホルダー等がその幅に収まらず折り返される
-    // （ユーザー報告）。フォント読み込み完了を待って、開いていればもう一度
-    // 測り直す——読み込み済みなら即座に解決する。
+    // 高さの計測がフォールバックフォントの字幅で行われてしまう。フォント読み込み完了を
+    // 待って、開いていればもう一度測り直す——読み込み済みなら即座に解決する。
     void document.fonts.ready.then(() => {
       if (this.textEditor === el) resizeToContent();
     });
@@ -941,74 +1484,155 @@ export class CircularCanvas {
       lastCompositionEndAt = performance.now();
     });
 
-    let cancelled = false;
     const commit = () => {
       if (this.textEditor !== el) return; // すでに片付け済みなら何もしない
       this.textEditor = null;
+      this.editingMemoId = null;
       this.repositionTextEditor = null;
+      this.applyEditingTextColor = null;
       this.restoreBodyScroll?.();
-      const value = el.value.trim();
+      // 先頭行のインデント（全角スペース）を残したいので、先頭の空行と、末尾の空行・
+      // 記号だけの行（書きかけの空の項目）だけを取り除く。
+      const value = stripTrailingBlankLines(el.value.replace(/^(?:[ \t　]*\n)+/, "")).trimEnd();
       el.remove();
-      if (cancelled) return; // Escapeでの取り消し：新規作成なら何もせず、編集なら元の内容のまま
-
-      if (!value) {
-        if (editingMemo) {
+      this.textEditorToolbar?.remove();
+      this.textEditorToolbar = null;
+      if (!value || isBlankText(value)) {
+        if (currentEditingMemo) {
           this.ensureUndoSnapshot();
-          this.store.deleteMemo(editingMemo.id);
+          this.store.deleteMemo(currentEditingMemo.id);
+          this.reflowLineMemos();
         }
         return;
       }
 
-      const boxWidthPx = measureTextBoxWidthPx(this.ctx, value, fontSize);
-      const lines = wrapTextAtReferenceScale(this.ctx, value, fontSize, boxWidthPx);
-      const { width, height } = normalizedBoxSize(fontSize, lines.length, boxWidthPx, lineHeight);
+      // 左端・上端を固定し、書き込み領域の右端までで折り返す。メモの中心は
+      // 確定した幅・高さから逆算する（左揃えで描くため、左端 = x − boxWidth/2）。
+      const area = this.lineTextArea();
+      const wrapRefPx = Math.max(minLineWrapWidthPx(fontSize), (area.right - lineLeft) * REFERENCE_RADIUS);
+      const { lines, contentWidthPx } = layoutText(this.ctx, value, fontSize, wrapRefPx);
+      const { width, height } = normalizedBoxSize(
+        fontSize,
+        lines.length,
+        Math.max(contentWidthPx, fontSize * 2), // 当たり判定が極端に細くならないよう最低幅を持たせる
+        lineHeight
+      );
+      const top = lineTop;
+      const position = { x: lineLeft + width / 2, y: top + height / 2 };
+      // 続きを書き始めただけで何も足さず色も変えなかった場合は、何も変更しない。
+      if (currentEditingMemo && value === currentEditingMemo.text && color === currentEditingMemo.color) return;
       this.ensureUndoSnapshot();
-
-      if (editingMemo) {
-        const offset = this.memoDisplayOffset(editingMemo);
-        this.store.materializeDisplayOffset(editingMemo.id, offset.x, offset.y, this.frame.usableHalfExtents());
-        this.store.updateTextMemo(editingMemo.id, value, lines, width, height);
+      if (currentEditingMemo) {
+        const offset = this.memoDisplayOffset(currentEditingMemo);
+        this.store.materializeDisplayOffset(currentEditingMemo.id, offset.x, offset.y, this.frame.usableHalfExtents());
+        this.store.updateTextMemo(currentEditingMemo.id, value, lines, width, height, {
+          position,
+          color,
+          layout: "line",
+          align: "left",
+        });
+        this.reflowLineMemos();
         return;
       }
-
-      // タップした場所をそのまま箱の中心にすると、境界に近い場所をタップした
-      // 場合に箱の端が枠の外へはみ出して配置されてしまう（ユーザー指摘）。
-      // 実際の文面から箱サイズが決まったこの時点で、箱全体が枠に収まる位置へ
-      // 寄せてから確定する。
-      const safeAnchor = clampBoxCenter(anchor, width / 2, height / 2, this.inputClamp());
       this.store.createTextMemo(
-        safeAnchor,
+        position,
         value,
         lines,
         fontSize,
         width,
         height,
-        { color },
+        { color, align: "left", lineHeight, layout: "line" },
         Date.now(),
         this.frame.usableHalfExtents()
       );
+      this.reflowLineMemos();
+      return;
     };
     el.addEventListener("blur", commit);
     el.addEventListener("keydown", (kev) => {
       // 日本語IMEで変換候補を選んでいる最中のEscapeは「変換候補を閉じる」ためのキー入力であり、
       // 入力全体の取り消しではない。isComposingを見ずに反応すると、変換候補を1つ閉じたいだけ
       // なのに入力していた文字ごと消えてしまうバグになるため、IME変換中は無視する。
+      // Escapeは確定（長く書いた文章を誤って失わないため、取り消しにはしない）。
       if (kev.key === "Escape" && !kev.isComposing && !composing) {
-        cancelled = true;
+        // このEscapeは入力の確定だけに使う。伝播させると、main.tsのEscapeでの道具の解除まで
+        // 同じ1回の押下で働いてしまう（道具の解除は、次にもう一度押したとき）。
+        kev.stopPropagation();
         el.blur();
         return;
       }
-      // Enterは確定、Shift+Enterは改行（ユーザー指示）。IME変換中・変換確定
-      // 直後のEnterはテキスト全体の確定ではないため無視する（上記コメント参照）。
+      // EnterはShift+Enterと同じ改行（一気に続けて書けるように。確定はEscape・外タップ・
+      // モバイルの✓）。IME変換中・変換確定直後のEnterは、改行ではなく変換の確定なので
+      // 何もしない（上記コメント参照）。
       const justFinishedComposing = performance.now() - lastCompositionEndAt < COMPOSITION_GRACE_MS;
-      if (kev.key === "Enter" && !kev.isComposing && !composing && kev.keyCode !== 229 && !justFinishedComposing) {
-        if (!kev.shiftKey) {
-          kev.preventDefault();
-          el.blur(); // blurのcommitハンドラで確定させる
+      const imeBusy = kev.isComposing || composing || kev.keyCode === 229;
+      // リスト操作：Tab/Shift+Tabでインデント、記号の直後のBackspaceで記号を外す。
+      if (!imeBusy) {
+        if (kev.key === "Tab") {
+          kev.preventDefault(); // フォーカスが外れて確定されてしまうのを防ぐ
+          applyEdit(kev.shiftKey ? outdentLines(readState()) : indentLines(readState()));
+          return;
         }
-        // Shift+EnterはpreventDefaultしない＝<textarea>既定の改行挿入に任せる
+        if (kev.key === "Backspace") {
+          const next = backspaceAtMarker(readState());
+          if (next) {
+            kev.preventDefault();
+            applyEdit(next);
+            return;
+          }
+        }
+      }
+      if (kev.key === "Enter") {
+        if (justFinishedComposing) {
+          kev.preventDefault(); // 変換確定のEnterが改行として入ってしまうのを防ぐ
+          return;
+        }
+        if (imeBusy) return;
+        // リストの行なら次の項目の記号を自動で入れる。リストでなければ<textarea>
+        // 既定の改行に任せる。
+        const next = continueList(readState());
+        if (next) {
+          kev.preventDefault();
+          applyEdit(next);
+        }
       }
     });
+  }
+
+  /** モバイルの行モード編集中にキーボード直上へ出す、アイコンだけのツールバー。
+   *  ボタンのpointerdown/mousedownでpreventDefaultして、タップしてもtextareaから
+   *  フォーカスが外れない（＝blurで確定されない）ようにする。 */
+  private buildTextEditorToolbar(actions: {
+    bullet: () => void;
+    number: () => void;
+    indent: () => void;
+    outdent: () => void;
+    done: () => void;
+  }): HTMLElement {
+    const bar = document.createElement("div");
+    bar.className = "text-editor-toolbar";
+    const svg = (d: string) =>
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+    const buttons: { label: string; html: string; run: () => void; cls?: string }[] = [
+      { label: "箇条書き", html: "・", run: actions.bullet },
+      { label: "番号付きリスト", html: "1.", run: actions.number },
+      { label: "インデントを増やす", html: svg('<path d="M4 6h16M12 12h8M4 18h16M4 9l4 3-4 3"/>'), run: actions.indent },
+      { label: "インデントを減らす", html: svg('<path d="M4 6h16M12 12h8M4 18h16M8 9l-4 3 4 3"/>'), run: actions.outdent },
+      { label: "確定", html: svg('<path d="M5 12.5l4.5 4.5L19 7.5"/>'), run: actions.done, cls: "text-editor-toolbar-btn--done" },
+    ];
+    for (const b of buttons) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = b.cls ? `text-editor-toolbar-btn ${b.cls}` : "text-editor-toolbar-btn";
+      btn.setAttribute("aria-label", b.label);
+      btn.innerHTML = b.html;
+      const keepFocus = (ev: Event) => ev.preventDefault();
+      btn.addEventListener("pointerdown", keepFocus);
+      btn.addEventListener("mousedown", keepFocus);
+      btn.addEventListener("click", b.run);
+      bar.appendChild(btn);
+    }
+    return bar;
   }
 
   /** 編集中のテキストがあれば確定する（画面切り替え・道具切り替え時に呼ぶ）。 */
@@ -1016,9 +1640,12 @@ export class CircularCanvas {
     this.textEditor?.blur();
   }
 
-  /** 道具バーの「戻る」ボタン（issue #90）用。モバイルの2本指タップと違い
-   *  道具を問わず使える——ペン等の道具で1本目の指が触れた瞬間の暫定書き換えと
-   *  絡み合う問題が無いため（onGlobalPointerUpのコメント参照）。
+  /** テキスト編集中に色スワッチが押されたとき、入力欄を閉じずに色を反映する。 */
+  setEditingTextColor(nextColor: string): void {
+    this.applyEditingTextColor?.(nextColor);
+  }
+
+  /** 道具バーの「戻る」ボタン（issue #90）用。道具を問わず使える。
    *  undoはstore.memosをまるごと差し替えるため、直前まで書き込み継続中だった
    *  メモ（activeMemoId）がstore側から消えている・別内容に置き換わっている
    *  ことがある。closeWritingSessionを呼ばずに残すと、WRITING_SESSION_IDLE_MS
@@ -1027,6 +1654,12 @@ export class CircularCanvas {
    *  セッションを打ち切り、次のストロークを新規メモとして始めさせる。 */
   undo(): void {
     this.store.undo();
+    this.closeWritingSession();
+  }
+
+  /** 道具バーの「やり直す」ボタン用。undo()と同じ理由で書き込みセッションを打ち切る。 */
+  redo(): void {
+    this.store.redo();
     this.closeWritingSession();
   }
 
@@ -1054,7 +1687,9 @@ export class CircularCanvas {
     }
     const p = this.toNormalized(ev.clientX, ev.clientY);
 
-    if (this.state.mode === "drawing" && this.state.activeMemoId) {
+    if (this.lineDrag) {
+      this.updateLineDrag(p);
+    } else if (this.state.mode === "drawing" && this.state.activeMemoId) {
       this.store.addPointToLastStroke(this.state.activeMemoId, p);
     } else if (this.state.mode === "moving" && this.state.movingMemoId && this.state.lastPoint) {
       const dx = p.x - this.state.lastPoint.x;
@@ -1149,7 +1784,7 @@ export class CircularCanvas {
     if (isEditableFocus) return;
     ev.preventDefault();
     this.onAutoTextToolStart?.();
-    this.openTextEditor({ x: 0, y: 0 }, null, ev.key);
+    this.openTextAtFlowEnd(ev.key);
   };
 
   /** フィット(1倍)より拡大しているか。main.tsがヘッダー/ツールバー（画面全体に
@@ -1157,14 +1792,6 @@ export class CircularCanvas {
    *  判定に使う（ユーザー指示：ズーム中は下の絵が見えるよう薄くしたい）。 */
   isZoomed(): boolean {
     return this.viewZoom > MIN_ZOOM;
-  }
-
-  /** キーボード直上に固定表示中（issue #87、pointer:coarse時の
-   *  text-editor-overlay--fixed-bottom）か。main.tsがこの間ツールバーを
-   *  隠すかどうかの判定に使う——入力欄がツールバーとほぼ同じ場所に不透明な
-   *  カードとして重なって表示されるため（ユーザー指示）。 */
-  isEditingTextFixedBottom(): boolean {
-    return this.textEditor?.classList.contains("text-editor-overlay--fixed-bottom") ?? false;
   }
 
   private renderBackgroundTimer(
@@ -1311,6 +1938,7 @@ export class CircularCanvas {
     }
 
     for (const memo of activeMemos) {
+      if (memo.id === this.editingMemoId) continue; // 編集中はtextareaが代わりに表示する
       const offset = this.memoDisplayOffset(memo);
       if (offset.x !== 0 || offset.y !== 0) {
         ctx.save();
@@ -1325,6 +1953,8 @@ export class CircularCanvas {
     ctx.globalCompositeOperation = "source-over";
     ctx.textAlign = "start";
     ctx.textBaseline = "alphabetic";
+
+    this.renderLineDrag(ctx, r, dark);
 
     if (this.state.mode === "moving" && this.state.lastPoint) {
       drawRadialGlow(
@@ -1371,6 +2001,7 @@ export class CircularCanvas {
     window.visualViewport?.removeEventListener("resize", this.onVisualViewportChange);
     window.visualViewport?.removeEventListener("scroll", this.onVisualViewportChange);
     this.textEditor?.remove();
+    this.textEditorToolbar?.remove();
     this.restoreBodyScroll?.();
     this.canvas.remove();
   }

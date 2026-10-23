@@ -85,6 +85,54 @@ describe("MemoStore", () => {
       }
     });
 
+    it("layoutを指定して作成でき、updateTextMemoにpositionを渡すと中心座標も更新される", () => {
+      const store = new MemoStore();
+      const memo = store.createTextMemo(
+        { x: 0.1, y: 0.1 },
+        "a",
+        ["a"],
+        24,
+        0.2,
+        0.1,
+        { color: "#000", align: "left", layout: "line" },
+        0
+      );
+      expect(memo.layout).toBe("line");
+      store.updateTextMemo(memo.id, "ab", ["ab"], 0.4, 0.1, { position: { x: 0.2, y: 0.15 } });
+      const updated = new MemoStore().getAll()[0];
+      expect(updated.x).toBe(0.2);
+      expect(updated.y).toBe(0.15);
+      expect(updated.kind === "text" && updated.boxWidth).toBe(0.4);
+      expect(updated.kind === "text" && updated.layout).toBe("line");
+    });
+
+    it("updateTextMemoにpositionを渡さなければ中心座標は変わらない", () => {
+      const store = new MemoStore();
+      const memo = store.createTextMemo({ x: 0.1, y: 0.2 }, "a", ["a"], 24, 0.2, 0.1, { color: "#000" }, 0);
+      store.updateTextMemo(memo.id, "ab", ["ab"], 0.4, 0.1);
+      const updated = store.getAll()[0];
+      expect([updated.x, updated.y]).toEqual([0.1, 0.2]);
+    });
+
+    it("updateTextMemoにlayout/align/colorを渡すと、配置や色を更新できる", () => {
+      const store = new MemoStore();
+      const memo = store.createTextMemo({ x: 0, y: 0 }, "a", ["a"], 24, 0.2, 0.1, { color: "#000" }, 0);
+      store.updateTextMemo(memo.id, "a", ["a"], 0.2, 0.1, { layout: "line", align: "left", color: "#f00" });
+      const updated = store.getAll()[0];
+      expect(updated.kind === "text" && [updated.layout, updated.align, updated.color]).toEqual(["line", "left", "#f00"]);
+    });
+
+    it("eraseAtのskipLineTextを指定すると、行モードのテキストには触れず、旧バージョンのテキストは従来どおり消す", () => {
+      const store = new MemoStore();
+      const line = store.createTextMemo({ x: 0, y: 0 }, "a", ["a"], 24, 0.4, 0.1, { color: "#000", layout: "line" }, 0);
+      const legacy = store.createTextMemo({ x: 0, y: 0.5 }, "b", ["b"], 24, 0.4, 0.1, { color: "#000" }, 0);
+      const changed = store.eraseAt({ x: 0, y: 0 }, 0.05, undefined, true);
+      expect(changed).toBe(false);
+      expect(store.getAll().map((m) => m.id)).toEqual([line.id, legacy.id]);
+      expect(store.eraseAt({ x: 0, y: 0.5 }, 0.05, undefined, true)).toBe(true);
+      expect(store.getAll().map((m) => m.id)).toEqual([line.id]);
+    });
+
     it("テキストメモにはstartStroke/addPointToLastStrokeが効かない（手描き専用の操作のため）", () => {
       const store = new MemoStore();
       const memo = store.createTextMemo({ x: 0, y: 0 }, "note", ["note"], 24, 0.5, 0.1, { color: "#000" }, 0);
@@ -299,6 +347,47 @@ describe("MemoStore", () => {
       expect(store.getAll()[0].id).toBe(memoA.id);
       expect(store.redo()).toBe(true);
       expect(store.getAll()).toHaveLength(2);
+    });
+
+    it("ストアを作り直しても（リロード相当）、undo/redoの履歴を引き継げる", () => {
+      const store = new MemoStore();
+      store.snapshotForUndo();
+      store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
+      store.snapshotForUndo();
+      store.createMemo({ x: 1, y: 1 }, STANDARD, 0);
+      store.undo(); // 1つ戻した状態（redoも1つ残っている）
+
+      const reloaded = new MemoStore();
+      expect(reloaded.getAll()).toHaveLength(1);
+      expect(reloaded.undo()).toBe(true); // もう1つ戻せる
+      expect(reloaded.getAll()).toHaveLength(0);
+      expect(reloaded.redo()).toBe(true);
+      expect(reloaded.redo()).toBe(true); // 先ほどundoした分もやり直せる
+      expect(reloaded.getAll()).toHaveLength(2);
+    });
+
+    it("resetAll・replaceAllは、保存済みの履歴も破棄する（作り直したストアでも戻せない）", () => {
+      const a = new MemoStore();
+      a.snapshotForUndo();
+      a.createMemo({ x: 0, y: 0 }, STANDARD, 0);
+      a.resetAll();
+      expect(new MemoStore().undo()).toBe(false);
+
+      const b = new MemoStore();
+      b.snapshotForUndo();
+      b.createMemo({ x: 0, y: 0 }, STANDARD, 0);
+      b.replaceAll([]);
+      expect(new MemoStore().undo()).toBe(false);
+    });
+
+    it("persistLocally=falseのストアは、履歴を保存も復元もしない", () => {
+      const persistent = new MemoStore();
+      persistent.snapshotForUndo();
+      persistent.createMemo({ x: 0, y: 0 }, STANDARD, 0);
+      const transient = new MemoStore(undefined, false);
+      expect(transient.undo()).toBe(false);
+      transient.snapshotForUndo();
+      expect(localStorage.getItem("memoHistory")).not.toBeNull(); // 上のpersistentが保存したぶんだけ
     });
 
     it("resetAllはundo/redoの履歴も破棄する", () => {
