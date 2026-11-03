@@ -7,11 +7,11 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "check:hygiene": "node scripts/check-hygiene.mjs",
+    "prepare": "git config core.hooksPath .githooks || true"
   },
   "devDependencies": {
-    "jsdom": "^30.1.3",
-    "playwright": "^1.64.1",
     "typescript": "^7.0.2",
     "vite": "^8.3.5",
     "vitest": "^5.0.5"
