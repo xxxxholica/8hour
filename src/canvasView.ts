@@ -28,6 +28,7 @@ import {
   continueList,
   indentLines,
   isBlankText,
+  moveItemToSlot,
   outdentLines,
   renumber,
   startNextLine,
@@ -92,7 +93,7 @@ interface PinchState {
   startPan: Point;
 }
 
-export interface ToolState {
+interface ToolState {
   tool: ToolbarTool;
   color: string;
   /** 基準円(半径340px)におけるフォントサイズ(px)。テキストツールの時のみ使う。 */
@@ -119,7 +120,7 @@ interface DrawState {
  * 大きさ（px）が変化しても、既存のメモが縮んで見えたり位置がずれたりしない
  * ——ウィンドウを広げれば単純にその分だけ拡大して描かれる。
  */
-export interface CircularCanvasOptions {
+interface CircularCanvasOptions {
   /** 道具バーで何も選ばずキーボードから直接文字を打ち始めた時
    *  （onGlobalKeyDown、印字可能キー1文字での新規テキストメモ作成）に呼ぶ。
    *  実際にはテキストメモの作成が始まっているのに道具バー上は元の道具
@@ -238,10 +239,9 @@ export class CircularCanvas {
    *  「キャンバスの外側どこでタッチしても構わない」という指示により、
    *  canvas要素にのみ登録されたactivePointerIdとは別に、windowレベルで
    *  すべてのpointerdown/move/up/cancelを監視して集める）。pointerIdごとの
-   *  現在位置に加え、複数指タップ判定（issue #90、tapGesture*参照）に使う
-   *  「触れた瞬間の位置」も持つ——2本目の指が乗るとピンチ開始（「選択」道具の
+   *  現在位置を持ち、2本目の指が乗るとピンチ開始（「移動・並べ替え」道具の
    *  間だけ、onGlobalPointerDown参照）。 */
-  private pinchPointers = new Map<number, { pos: Point; downPos: Point }>();
+  private pinchPointers = new Map<number, Point>();
   private viewZoom = 1;
   private viewPan: Point = { x: 0, y: 0 };
   private prevTimerText: string | null = null;
@@ -565,8 +565,6 @@ export class CircularCanvas {
       // ブラウザ差異等でcaptureに失敗しても致命的ではないため無視する。
     }
     this.activePointerId = ev.pointerId;
-
-    if (this.textEditor) return; // テキスト入力中は他の操作を受け付けない（blurで確定してから）
     const p = raw;
 
     const tool = this.getToolState().tool;
@@ -672,7 +670,7 @@ export class CircularCanvas {
     if (this.pinchPointers.size === 0) {
       this.tapGesturePeakCount = 0;
     }
-    this.pinchPointers.set(ev.pointerId, { pos, downPos: pos });
+    this.pinchPointers.set(ev.pointerId, pos);
     this.tapGesturePeakCount = Math.max(this.tapGesturePeakCount, this.pinchPointers.size);
 
     if (this.pinchPointers.size === 2) {
@@ -687,18 +685,10 @@ export class CircularCanvas {
   /** ピンチ対象として追跡中の指が動くたびに呼ぶ（windowレベル）。2本以上の指を
    *  追跡している間は道具に関わらず常にev.preventDefault()し続ける——2本目の
    *  pointerdownだけを止めても、その後の移動でSafariの純正ジェスチャーが
-   *  再度乗っ取ってくることがあるため（onGlobalPointerDownのコメント参照）。
-   *  以前は選択ツールでのピンチ中(mode==="pinching")に限っていたが、それ以外の
-   *  道具では2本目以降の指の動きをSafari純正のジェスチャー（ダブルタップ/
-   *  マルチタッチでのズーム等）が横取りしてしまい、指の位置がブレて複数指
-   *  タップ（issue #90）の判定まで狂う不具合になっていた（ユーザー報告・
-   *  実機Safariで再現確認）。触れている指がTAP_MAX_MOVEMENT_PXを超えて
-   *  動いたら、この一連のマルチタッチはもう複数指タップとはみなさない
-   *  （ドラッグ・ピンチとして進行する）。 */
+   *  再度乗っ取ってくることがあるため（onGlobalPointerDownのコメント参照）。 */
   private onGlobalPointerMove = (ev: PointerEvent): void => {
-    const tracked = this.pinchPointers.get(ev.pointerId);
-    if (!tracked) return;
-    tracked.pos = { x: ev.clientX, y: ev.clientY };
+    if (!this.pinchPointers.has(ev.pointerId)) return;
+    this.pinchPointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
     if (this.pinchPointers.size >= 2) {
       ev.preventDefault();
     }
@@ -707,26 +697,13 @@ export class CircularCanvas {
     }
   };
 
-  /** ピンチ対象として追跡中の指が離れるたびに呼ぶ（windowレベル）。追跡していた
-   *  全ての指が離れた（このマルチタッチの塊が終わった）時点で、複数指タップの
-   *  条件（本数・移動量・所要時間）を満たしていればundo/redoを呼ぶ（issue #90）。
-   *  「選択」道具を選んでいる間だけ判定する——ペン・消しゴム等では1本目の指が
-   *  触れた瞬間に即座にストアを書き換える（ensureUndoSnapshot）ため、タップと
-   *  確定する前の暫定的な書き換えがundo/redoの履歴と絡み合ってしまい、特に
-   *  3本指タップ（redo）はその暫定書き換え自体がredo履歴を消してしまって
-   *  正しく機能しないことがあった（実機で再現確認）。選択道具は1本目の指
-   *  だけでは何も書き換えない（実際に動かして初めてtranslateMemoが呼ばれる）
-   *  ため、この問題が起きない。ペン等でも取り消したい場合は、道具バーの
-   *  「戻る」ボタン（toolbar.ts）を使う。 */
+  /** ピンチ対象として追跡中の指が離れるたびに呼ぶ（windowレベル）。 */
   private onGlobalPointerUp = (ev: PointerEvent): void => {
     if (!this.pinchPointers.delete(ev.pointerId)) return;
     // Safariのダブルタップズームは指の移動量ではなく、連続する2回のタップの
     // 間隔（touchend/pointerupのタイミング）で判定される——onGlobalPointerMove
     // 側のpreventDefault()（指が動く間だけ効く）では止められないため、こちらも
-    // このマルチタッチの塊に2本以上の指が関わっていた間はpreventDefault()する
-    // （複数指タップ自体がSafari純正のズームと誤認されないようにするため。
-    // ユーザー報告・実機Safariで再現確認：3本指タップを2回繰り返すと時々
-    // ズームしてしまっていた）。
+    // このマルチタッチの塊に2本以上の指が関わっていた間はpreventDefault()する。
     if (this.tapGesturePeakCount >= 2) ev.preventDefault();
     if (this.state.mode === "pinching" && this.pinchPointers.size < 2) {
       // 1本の指を離しただけでは描画を再開しない——残り1本になったら
@@ -734,18 +711,16 @@ export class CircularCanvas {
       this.state.mode = "idle";
       this.pinch = null;
     }
-    // （以前はここで2本指タップ=Undo・3本指タップ=Redoを判定していたが、発見しづらい
-    // ため廃止した。取り消し・やり直しは道具バーのボタンとキーボードで行う。）
   };
 
   /** 2本目の指が乗った瞬間に呼ぶ。進行中の1本指ジェスチャー（描画・消しゴム・
-   *  なぞる・移動）があれば打ち切ってからピンチの起点を記録する。 */
+   *  移動）があれば打ち切ってからピンチの起点を記録する。 */
   private beginPinch(): void {
     if (this.state.mode !== "idle" && this.state.mode !== "pinching") {
       this.endSinglePointerGesture(true);
     }
     this.activePointerId = null; // 1本指ジェスチャーはピンチに譲る
-    const [a, b] = [...this.pinchPointers.values()].map((p) => p.pos);
+    const [a, b] = [...this.pinchPointers.values()];
     this.state.mode = "pinching";
     this.pinch = {
       startDist: distance(a, b),
@@ -759,7 +734,7 @@ export class CircularCanvas {
    *  中点の移動量でパンを更新する。 */
   private updatePinch(): void {
     if (!this.pinch || this.pinchPointers.size < 2) return;
-    const [a, b] = [...this.pinchPointers.values()].map((p) => p.pos);
+    const [a, b] = [...this.pinchPointers.values()];
     const dist = distance(a, b);
     const mid = pointerMidpoint(a, b);
     this.viewZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, this.pinch.startZoom * (dist / this.pinch.startDist)));
@@ -924,12 +899,12 @@ export class CircularCanvas {
     if (!d || !d.active) return;
     const flow = this.collectFlowParagraphs();
     if (!flow) return;
-    const n = flow.paragraphs.length;
-    if (d.from < 0 || d.from >= n || d.slot < 0 || d.slot > n) return;
-    if (d.slot === d.from || d.slot === d.from + 1) return;
-    const next = flow.paragraphs.map((item) => ({ text: item.text, color: item.color }));
-    const [moved] = next.splice(d.from, 1);
-    next.splice(d.slot > d.from ? d.slot - 1 : d.slot, 0, moved);
+    const next = moveItemToSlot(
+      flow.paragraphs.map((item) => ({ text: item.text, color: item.color })),
+      d.from,
+      d.slot
+    );
+    if (!next) return;
     this.ensureUndoSnapshot();
     this.applyFlowParagraphs(flow.memos, next, { restartAtOne: true });
   }
@@ -1358,40 +1333,38 @@ export class CircularCanvas {
       const vv = window.visualViewport;
       const viewportOffsetX = vv?.offsetLeft ?? 0;
       const viewportOffsetY = vv?.offsetTop ?? 0;
-      {
-        const lineMargin = 8;
-        const visW = vv?.width ?? window.innerWidth;
-        const visH = vv?.height ?? window.innerHeight;
-        const wrapScreenPx = Math.max(
-          (minLineWrapWidthPx(fontSize) / REFERENCE_RADIUS) * scale,
-          (this.lineTextArea().right - lineLeft) * scale
-        );
-        const widthScreenPx = Math.min(wrapScreenPx, visW - lineMargin * 2);
-        el.style.width = `${widthScreenPx / lineScaleK}px`;
-        el.style.height = "auto";
-        const contentH = el.scrollHeight;
-        const toolbarH = toolbarEl ? toolbarEl.offsetHeight : 0;
-        const maxVisualH = Math.max(fontPx * lineHeight, visH - toolbarH - lineMargin * 2);
-        const clampedContentH = Math.min(contentH, maxVisualH / lineScaleK);
-        el.style.height = `${clampedContentH}px`;
-        el.style.overflowY = contentH > clampedContentH + 1 ? "auto" : "hidden";
-        const visualH = clampedContentH * lineScaleK;
-        const lineScreenX = canvasRect.left + this.frame.centerPx.x + this.viewPan.x + lineLeft * scale + viewportOffsetX;
-        const lineScreenY = canvasRect.top + this.frame.centerPx.y + this.viewPan.y + lineTop * scale + viewportOffsetY;
-        const lMin = viewportOffsetX + lineMargin;
-        const lMax = viewportOffsetX + visW - widthScreenPx - lineMargin;
-        const tMin = viewportOffsetY + lineMargin;
-        const tMax = viewportOffsetY + visH - toolbarH - visualH - lineMargin;
-        if (toolbarEl) {
-          toolbarEl.style.left = `${viewportOffsetX}px`;
-          toolbarEl.style.width = `${visW}px`;
-          toolbarEl.style.top = `${viewportOffsetY + visH - toolbarH}px`;
-        }
-        el.style.transformOrigin = "0 0";
-        el.style.transform = lineScaleK < 1 ? `scale(${lineScaleK})` : "";
-        el.style.left = `${lMax >= lMin ? Math.min(Math.max(lineScreenX, lMin), lMax) : lMin}px`;
-        el.style.top = `${tMax >= tMin ? Math.min(Math.max(lineScreenY, tMin), tMax) : tMin}px`;
+      const lineMargin = 8;
+      const visW = vv?.width ?? window.innerWidth;
+      const visH = vv?.height ?? window.innerHeight;
+      const wrapScreenPx = Math.max(
+        (minLineWrapWidthPx(fontSize) / REFERENCE_RADIUS) * scale,
+        (this.lineTextArea().right - lineLeft) * scale
+      );
+      const widthScreenPx = Math.min(wrapScreenPx, visW - lineMargin * 2);
+      el.style.width = `${widthScreenPx / lineScaleK}px`;
+      el.style.height = "auto";
+      const contentH = el.scrollHeight;
+      const toolbarH = toolbarEl ? toolbarEl.offsetHeight : 0;
+      const maxVisualH = Math.max(fontPx * lineHeight, visH - toolbarH - lineMargin * 2);
+      const clampedContentH = Math.min(contentH, maxVisualH / lineScaleK);
+      el.style.height = `${clampedContentH}px`;
+      el.style.overflowY = contentH > clampedContentH + 1 ? "auto" : "hidden";
+      const visualH = clampedContentH * lineScaleK;
+      const lineScreenX = canvasRect.left + this.frame.centerPx.x + this.viewPan.x + lineLeft * scale + viewportOffsetX;
+      const lineScreenY = canvasRect.top + this.frame.centerPx.y + this.viewPan.y + lineTop * scale + viewportOffsetY;
+      const lMin = viewportOffsetX + lineMargin;
+      const lMax = viewportOffsetX + visW - widthScreenPx - lineMargin;
+      const tMin = viewportOffsetY + lineMargin;
+      const tMax = viewportOffsetY + visH - toolbarH - visualH - lineMargin;
+      if (toolbarEl) {
+        toolbarEl.style.left = `${viewportOffsetX}px`;
+        toolbarEl.style.width = `${visW}px`;
+        toolbarEl.style.top = `${viewportOffsetY + visH - toolbarH}px`;
       }
+      el.style.transformOrigin = "0 0";
+      el.style.transform = lineScaleK < 1 ? `scale(${lineScaleK})` : "";
+      el.style.left = `${lMax >= lMin ? Math.min(Math.max(lineScreenX, lMin), lMax) : lMin}px`;
+      el.style.top = `${tMax >= tMin ? Math.min(Math.max(lineScreenY, tMin), tMax) : tMin}px`;
     };
     resizeToContent();
     el.addEventListener("input", resizeToContent);
@@ -1531,22 +1504,20 @@ export class CircularCanvas {
           layout: "line",
           align: "left",
         });
-        this.reflowLineMemos();
-        return;
+      } else {
+        this.store.createTextMemo(
+          position,
+          value,
+          lines,
+          fontSize,
+          width,
+          height,
+          { color, align: "left", lineHeight, layout: "line" },
+          Date.now(),
+          this.frame.usableHalfExtents()
+        );
       }
-      this.store.createTextMemo(
-        position,
-        value,
-        lines,
-        fontSize,
-        width,
-        height,
-        { color, align: "left", lineHeight, layout: "line" },
-        Date.now(),
-        this.frame.usableHalfExtents()
-      );
       this.reflowLineMemos();
-      return;
     };
     el.addEventListener("blur", commit);
     el.addEventListener("keydown", (kev) => {
@@ -1735,15 +1706,6 @@ export class CircularCanvas {
     this.endSinglePointerGesture();
   };
 
-  /**
-   * 何も選択していない状態（テキスト編集中でも、道具でのドラッグ中でもない）で
-   * 印字可能な文字キーが押されたら、その場でテキスト入力を始める（ユーザー指示）。
-   * 書き始める位置は常に円そのものの中心(0,0)——空いているマスを探す方式は、
-   * 狙いどおりの見た目に細かく調整するのが難しくユーザー自身が調整を諦めたため
-   * 単純化した。罫線の上に乗るかどうかも気にしない（ユーザー指示）。既存の文字と
-   * 重なってもよい。ショートカット（Ctrl/Cmd/Alt併用）や、他の入力欄
-   * （色ピッカー・招待リンクの入力欄など）にフォーカスがある間は横取りしない。
-   */
   /** iOS Safariはソフトキーボードが開いてもcontainerのCSS上のサイズ自体は
    *  変えず、代わりに実際に見えている範囲（visual viewport）だけを縮める
    *  ——このケースはResizeObserver（containerのサイズ監視）では捉えられない

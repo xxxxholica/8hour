@@ -12,7 +12,6 @@ import {
   minLineWrapWidthPx,
   normalizedBoxSize,
   snapToRowTop,
-  wrapTextAtReferenceScale,
 } from "../src/textLayout";
 import { REFERENCE_RADIUS } from "../src/toolStyle";
 
@@ -42,34 +41,6 @@ describe("fontPxForRender（文字サイズの下限）", () => {
   it("下限(MIN_FONT_PX)より小さくはならない", () => {
     expect(fontPxForRender(24, 10)).toBe(MIN_FONT_PX);
     expect(fontPxForRender(FONT_SIZE_STEPS.small, 1)).toBe(MIN_FONT_PX);
-  });
-});
-
-describe("wrapTextAtReferenceScale（行分割）", () => {
-  it("幅に収まる短いテキストは1行のまま", () => {
-    const ctx = makeFakeCtx(10);
-    const lines = wrapTextAtReferenceScale(ctx, "abc", 24);
-    expect(lines).toEqual(["abc"]);
-  });
-
-  it("幅を超えると複数行に折り返す", () => {
-    const ctx = makeFakeCtx(10);
-    // 1文字10px、幅REFERENCE_TEXT_BOX_WIDTH_PXなので、それを超える文字数なら折り返るはず
-    const text = "a".repeat(Math.ceil(REFERENCE_TEXT_BOX_WIDTH_PX / 10) + 5);
-    const lines = wrapTextAtReferenceScale(ctx, text, 24);
-    expect(lines.length).toBeGreaterThan(1);
-    expect(lines.join("")).toBe(text);
-  });
-
-  it("改行(\\n)は明示的に別の行として扱う", () => {
-    const ctx = makeFakeCtx(10);
-    const lines = wrapTextAtReferenceScale(ctx, "a\nb", 24);
-    expect(lines).toEqual(["a", "b"]);
-  });
-
-  it("空文字は1つの空行として扱う（クラッシュしない）", () => {
-    const ctx = makeFakeCtx(10);
-    expect(wrapTextAtReferenceScale(ctx, "", 24)).toEqual([""]);
   });
 });
 

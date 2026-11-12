@@ -50,9 +50,8 @@ export function circleIntersectsBox(
   return distance(center, { x: closestX, y: closestY }) <= radius;
 }
 
-/** 円（原点中心・半径 radius）の内側に点を丸め込む。 */
 /**
- * pがclampの境界の内側にあるか。clamp系の関数（clampToRoundedRect等）は境界の
+ * pがclampの境界の内側にあるか。clamp系の関数（clampToRect等）は境界の
  * 内側の点を値そのまま返す実装になっているため、clamp(p)とpを値比較するだけで
  * 内外判定できる（restrictTranslationの内側判定と同じイディオム）。
  */
@@ -62,36 +61,10 @@ export function isInsideClamp(p: Point, clamp: (p: Point) => Point): boolean {
 }
 
 /**
- * 角丸長方形（原点中心、半辺half、角丸半径cornerRadius）の内側に点を丸め込む。
- * 直線の辺に近い（=角の丸め部分の外にある）点は軸ごとに素直にクランプし、
- * 角の丸め部分にある点はその角の中心（各辺からcornerRadiusだけ内側）からの
- * 距離をcornerRadiusに縮める。
- */
-export function clampToRoundedRect(p: Point, half: number, cornerRadius: number): Point {
-  const inner = half - cornerRadius;
-  const ax = Math.abs(p.x);
-  const ay = Math.abs(p.y);
-  if (ax <= inner || ay <= inner) {
-    return {
-      x: Math.max(-half, Math.min(half, p.x)),
-      y: Math.max(-half, Math.min(half, p.y)),
-    };
-  }
-  const cx = Math.sign(p.x) * inner;
-  const cy = Math.sign(p.y) * inner;
-  const dx = p.x - cx;
-  const dy = p.y - cy;
-  const d = Math.hypot(dx, dy);
-  if (d <= cornerRadius) return p;
-  const scale = cornerRadius / d;
-  return { x: cx + dx * scale, y: cy + dy * scale };
-}
-
-/**
  * 点群（ストロークを構成する全ての点）を (dx, dy) だけ剛体移動しようとしたとき、
  * 移動後に境界の外へ出る点が1つでもあれば、全ての点が境界内に収まる範囲まで
  * 移動量を比例的に縮める（2分探索）。個々の点を境界へ独立にスナップする
- * （clampToRoundedRect等をmapで適用する）方式は、境界に近い点ほど個別に丸め込まれて
+ * （clampToRect等をmapで適用する）方式は、境界に近い点ほど個別に丸め込まれて
  * 線全体の形が歪んでしまうため、代わりに移動そのものを制限する
  * ——「ストローク全体が境界内に収まらない移動は行わない」という方針
  * （ユーザー指示）。dx=dy=0、または元々1点も境界内に収まらない状態からの
@@ -171,7 +144,7 @@ export function clampToRect(p: Point, halfW: number, halfH: number): Point {
  * メモ（手描き・テキスト）の基準座標系における外接矩形の中心(cx, cy)と
  * 半幅・半高(halfW, halfH)を返す。
  */
-export function memoBounds(memo: Memo): { cx: number; cy: number; halfW: number; halfH: number } {
+function memoBounds(memo: Memo): { cx: number; cy: number; halfW: number; halfH: number } {
   if (memo.kind === "text") {
     return {
       cx: memo.x,

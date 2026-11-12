@@ -60,33 +60,9 @@ function wrapParagraphs(ctx: CanvasRenderingContext2D, text: string, maxWidth: n
   return lines;
 }
 
-/**
- * テキストを、基準円(半径REFERENCE_RADIUS)における折り返し幅(maxWidthPx、既定は
- * REFERENCE_TEXT_BOX_WIDTH_PX＝テンプレート用の固定幅)で行分割する。実際の描画半径や
- * ユーザーが選んだ文字サイズに関わらず、常にこの基準サイズで測定することで、
- * リサイズしても行分割の結果（＝改行位置）が変わらないようにする（フォントサイズも
- * 折り返し幅も同じ比率で実際の半径にスケールするため、基準サイズでの折り返し結果は
- * どの半径でもそのまま正しく使い回せる）。通常のテキスト入力は、この関数ではなく
- * layoutText（紙の幅いっぱいまで折り返さない）で行分割する。
- */
-export function wrapTextAtReferenceScale(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  fontPxAtReference: number,
-  maxWidthPx: number = REFERENCE_TEXT_BOX_WIDTH_PX
-): string[] {
-  const prevFont = ctx.font;
-  ctx.font = `${fontPxAtReference}px ${TEXT_FONT_FAMILY}`;
-  const lines = wrapParagraphs(ctx, text, maxWidthPx);
-  ctx.font = prevFont;
-  return lines.length > 0 ? lines : [""];
-}
-
 /** テキストブロックの折り返し幅・高さを、円の半径を1とする正規化単位で返す。
- *  boxWidthPxは既定でREFERENCE_TEXT_BOX_WIDTH_PX（テンプレート用の固定幅）。
- *  lineHeightMultiplierは既定でLINE_HEIGHT_MULTIPLIER——テンプレートを置く
- *  瞬間だけTEMPLATE_LINE_HEIGHT_MULTIPLIERを渡す（memo.lineHeightとして
- *  そのまま保存され、renderMemoAt・編集時の再計算の両方で使われる）。 */
+ *  boxWidthPxは既定でREFERENCE_TEXT_BOX_WIDTH_PX。
+ *  lineHeightMultiplierは既定でLINE_HEIGHT_MULTIPLIER。 */
 export function normalizedBoxSize(
   fontPxAtReference: number,
   lineCount: number,

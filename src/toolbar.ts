@@ -5,15 +5,13 @@ import { DEFAULT_LIGHT_INK, isDarkThemeActive, resolveInkColor } from "./theme";
 import { PEN_LINE_WIDTH } from "./toolStyle";
 import type { DrawTool } from "./types";
 
-export interface TopRightBarOptions {
+interface TopRightBarOptions {
   container: HTMLElement;
   onToggleDarkMode?: () => void;
 }
 
 export type ToolbarTool = DrawTool | "eraser" | "text" | "move" | "none";
 type SelectableTool = Exclude<ToolbarTool, "none">;
-
-export const DEFAULT_INK = DEFAULT_LIGHT_INK;
 
 const DEFAULT_ERASER_RADIUS = 16;
 
@@ -24,7 +22,7 @@ interface InkPreset {
 }
 
 const PEN_PRESET_INKS: InkPreset[] = [
-  { id: "black", label: "黒", color: DEFAULT_INK },
+  { id: "black", label: "黒", color: DEFAULT_LIGHT_INK },
   { id: "red", label: "赤", color: "oklch(52% 0.2 25)" },
   { id: "blue", label: "青", color: "oklch(48% 0.16 258)" },
 ];
@@ -65,9 +63,8 @@ export class Toolbar {
   private onRedo?: () => void;
   private onToggleDarkMode?: () => void;
   private tool: ToolbarTool = "none";
-  private drawColor: string = DEFAULT_INK;
+  private drawColor: string = DEFAULT_LIGHT_INK;
   private markerColor: string = MARKER_PRESET_INKS[0].color;
-  private eraserRadius: number = DEFAULT_ERASER_RADIUS;
 
   private toolButtons = new Map<ToolbarTool, HTMLButtonElement>();
   private undoBtn!: HTMLButtonElement;
@@ -128,7 +125,7 @@ export class Toolbar {
   }
 
   getEraserRadius(): number {
-    return this.eraserRadius;
+    return DEFAULT_ERASER_RADIUS;
   }
 
   private setTool(tool: ToolbarTool): void {
@@ -315,7 +312,6 @@ export class Toolbar {
 
   private syncAll(): void {
     this.syncPill();
-    this.syncSwatch();
     this.syncThemeState();
     this.syncFollowerCard();
   }

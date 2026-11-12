@@ -2,38 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   circleIntersectsBox,
   clampToRect,
-  clampToRoundedRect,
   computeMemoDisplayOffset,
   computeResponsiveScale,
   eraseFromStroke,
-  isInsideClamp,
   pointNearStroke,
   pointNearStrokes,
   pointToSegmentDistance,
 } from "../src/geometry";
 import type { StrokeMemo, TextMemo } from "../src/types";
-
-describe("clampToRoundedRect（キャンバスの枠：正方形・角丸）", () => {
-  const roundedClamp = (p: { x: number; y: number }) => clampToRoundedRect(p, 1, 0.3);
-
-  it("枠の内側の点はそのまま", () => {
-    expect(clampToRoundedRect({ x: 0.1, y: 0.1 }, 1, 0.3)).toEqual({ x: 0.1, y: 0.1 });
-  });
-
-  it("辺の直線部分の外側は、その辺へ素直にクランプされる（角の丸め込みではない軸）", () => {
-    // inner = half - cornerRadius = 0.7。y=0（|y|<=inner）は直線の辺に近いので、
-    // x方向だけが辺(half=1)にクランプされる。
-    const p = clampToRoundedRect({ x: 2, y: 0 }, 1, 0.3);
-    expect(p).toEqual({ x: 1, y: 0 });
-  });
-
-  it("角の外側の点は、角の丸め半径の弧上に丸め込まれる", () => {
-    const p = clampToRoundedRect({ x: 2, y: 2 }, 1, 0.3);
-    expect(isInsideClamp(p, roundedClamp)).toBe(true);
-    // 角の中心(0.7, 0.7)からの距離がちょうどcornerRadius(0.3)になる。
-    expect(Math.hypot(p.x - 0.7, p.y - 0.7)).toBeCloseTo(0.3);
-  });
-});
 
 describe("pointToSegmentDistance", () => {
   it("線分の真上なら距離0", () => {

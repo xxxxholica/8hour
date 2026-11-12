@@ -366,17 +366,20 @@ describe("MemoStore", () => {
       expect(reloaded.getAll()).toHaveLength(2);
     });
 
-    it("resetAll・replaceAllは、保存済みの履歴も破棄する（作り直したストアでも戻せない）", () => {
+    it("resetAll・replaceAllはメモリ上および保存済みの履歴も破棄する", () => {
       const a = new MemoStore();
       a.snapshotForUndo();
       a.createMemo({ x: 0, y: 0 }, STANDARD, 0);
       a.resetAll();
+      expect(a.undo()).toBe(false);
       expect(new MemoStore().undo()).toBe(false);
 
       const b = new MemoStore();
       b.snapshotForUndo();
       b.createMemo({ x: 0, y: 0 }, STANDARD, 0);
       b.replaceAll([]);
+      expect(b.undo()).toBe(false);
+      expect(b.getAll()).toHaveLength(0);
       expect(new MemoStore().undo()).toBe(false);
     });
 
@@ -388,23 +391,6 @@ describe("MemoStore", () => {
       expect(transient.undo()).toBe(false);
       transient.snapshotForUndo();
       expect(localStorage.getItem("memoHistory")).not.toBeNull(); // 上のpersistentが保存したぶんだけ
-    });
-
-    it("resetAllはundo/redoの履歴も破棄する", () => {
-      const store = new MemoStore();
-      store.snapshotForUndo();
-      store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
-      store.resetAll();
-      expect(store.undo()).toBe(false);
-    });
-
-    it("replaceAllはundo/redoの履歴も破棄する（tutorialSandbox.tsのシナリオ切り替え用）", () => {
-      const store = new MemoStore();
-      store.snapshotForUndo();
-      store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
-      store.replaceAll([]);
-      expect(store.undo()).toBe(false);
-      expect(store.getAll()).toHaveLength(0);
     });
 
     it("消しゴム・移動など他の操作もundoで元に戻せる", () => {

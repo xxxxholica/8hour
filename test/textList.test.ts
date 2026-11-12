@@ -5,6 +5,7 @@ import {
   continueList,
   indentLines,
   isBlankText,
+  moveItemToSlot,
   outdentLines,
   parseListLine,
   renumber,
@@ -221,5 +222,12 @@ describe("reorderParagraphs（行の入れ替え）", () => {
 
   it("箇条書きの記号や、空行はそのまま動く", () => {
     expect(reorderParagraphs("・ a\n\n・ b", 2, 0)).toBe("・ b\n・ a\n");
+  });
+
+  it("moveItemToSlotは配列要素を指定スロットへ移動し、無変更や範囲外ではnullを返す", () => {
+    expect(moveItemToSlot(["a", "b", "c"], 0, 3)).toEqual(["b", "c", "a"]);
+    expect(moveItemToSlot(["a", "b", "c"], 1, 1)).toBeNull();
+    expect(moveItemToSlot(["a", "b", "c"], 1, 2)).toBeNull();
+    expect(moveItemToSlot(["a", "b", "c"], -1, 0)).toBeNull();
   });
 });

@@ -9,7 +9,7 @@
  */
 
 /** 1段階のインデント（全角スペース1つ＝文字1つぶん）。 */
-export const INDENT_UNIT = "　";
+const INDENT_UNIT = "　";
 
 export interface EditState {
   value: string;
@@ -20,7 +20,7 @@ export interface EditState {
 
 type ListKind = "bullet" | "dot" | "paren";
 
-export interface ListMarker {
+interface ListMarker {
   /** 行頭のインデント（全角スペース・半角スペース）。 */
   indent: string;
   kind: ListKind;
@@ -119,17 +119,28 @@ export function startNextLine(text: string): string {
 }
 
 /**
+ * 配列の要素fromを、スロットslot（0〜要素数、「slot番目の要素の手前」）へ移した
+ * 新しい配列を返す。範囲外、または移動前と同じ位置（slot === from / from + 1）の
+ * ときはnullを返す。
+ */
+export function moveItemToSlot<T>(items: readonly T[], from: number, slot: number): T[] | null {
+  if (from < 0 || from >= items.length || slot < 0 || slot > items.length) return null;
+  if (slot === from || slot === from + 1) return null;
+  const next = [...items];
+  const [moved] = next.splice(from, 1);
+  next.splice(slot > from ? slot - 1 : slot, 0, moved);
+  return next;
+}
+
+/**
  * 段落（改行で区切られた1行）fromを、スロットslot（0〜段落数、「slot番目の段落の手前」）
  * へ移す。移さない場合（範囲外、または移動前と同じ位置）は元のtextをそのまま返す。
  * 番号付きリストは、最上位の階層を1から振り直す（入れ替えても連番が崩れないように）。
  */
 export function reorderParagraphs(text: string, from: number, slot: number): string {
-  const paragraphs = text.split("\n");
-  if (from < 0 || from >= paragraphs.length || slot < 0 || slot > paragraphs.length) return text;
-  if (slot === from || slot === from + 1) return text;
-  const [moved] = paragraphs.splice(from, 1);
-  paragraphs.splice(slot > from ? slot - 1 : slot, 0, moved);
-  return renumber({ value: paragraphs.join("\n"), start: 0, end: 0 }, { restartAtOne: true }).value;
+  const moved = moveItemToSlot(text.split("\n"), from, slot);
+  if (!moved) return text;
+  return renumber({ value: moved.join("\n"), start: 0, end: 0 }, { restartAtOne: true }).value;
 }
 
 /** 末尾の、空・空白・記号だけの行（書きかけの空の項目など）を取り除く。 */

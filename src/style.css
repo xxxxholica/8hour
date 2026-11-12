@@ -1,170 +1,67 @@
 /* --- デザイントークン ------------------------------------------------
-   これまで色・余白・角丸・文字サイズがファイル中に生の値のまま何十回も
-   複製されていて、後から一貫して調整するのが難しかった（UI再設計の
-   最初の段階として、まずここを整理する）。
-   色は暖色系グレースケール1本（インク）＋紙の明度違い＋インクの色として
-   すでに使っているアクセント（赤・青、toolbar.tsのPRESET_INKSと同じ値）
-   の3系統。2箇所以上で使われている値だけをトークン化しており、1箇所だけの
-   装飾的な値（虹色スワッチのグラデーション等）は無理に揃えずそのまま残す。
-   余白は4pxグリッド、文字サイズは今後ここへ段階的に揃えていく目標値。 --- */
+   色・余白・角丸・文字サイズ・影の共通トークン。
+   色は暖色系グレースケール1本（インク）＋紙の明度違いの2系統。
+   インクは明度・彩度・色相の組（--ink-lch）を基準にし、ダークテーマでは
+   --ink-lch と紙のトークンだけを差し替えることで重複定義を防いでいる。 --- */
 :root {
   color-scheme: light dark;
 
-  --ink-solid: oklch(22% 0.012 55);
-  --ink-95: oklch(22% 0.012 55 / 0.95);
-  --ink-85: oklch(22% 0.012 55 / 0.85);
-  --ink-80: oklch(22% 0.012 55 / 0.8);
-  --ink-70: oklch(22% 0.012 55 / 0.7);
-  --ink-60: oklch(22% 0.012 55 / 0.6);
-  --ink-55: oklch(22% 0.012 55 / 0.55);
-  --ink-50: oklch(22% 0.012 55 / 0.5);
-  --ink-45: oklch(22% 0.012 55 / 0.45);
-  --ink-40: oklch(22% 0.012 55 / 0.4);
-  --ink-35: oklch(22% 0.012 55 / 0.35);
-  --ink-20: oklch(22% 0.012 55 / 0.2);
-  --ink-12: oklch(22% 0.012 55 / 0.12);
-  --ink-08: oklch(22% 0.012 55 / 0.08);
-  --ink-06: oklch(22% 0.012 55 / 0.06);
+  --ink-lch: 22% 0.012 55;
+  --ink-solid: oklch(var(--ink-lch));
+  --ink-95: oklch(var(--ink-lch) / 0.95);
+  --ink-85: oklch(var(--ink-lch) / 0.85);
+  --ink-70: oklch(var(--ink-lch) / 0.7);
+  --ink-55: oklch(var(--ink-lch) / 0.55);
+  --ink-35: oklch(var(--ink-lch) / 0.35);
+  --ink-20: oklch(var(--ink-lch) / 0.2);
+  --ink-12: oklch(var(--ink-lch) / 0.12);
+  --ink-08: oklch(var(--ink-lch) / 0.08);
+  --ink-06: oklch(var(--ink-lch) / 0.06);
 
   --paper-canvas: #f2ede6;
-  --paper-0: oklch(97% 0.006 75);
   --paper-1: oklch(98% 0.005 75);
-  --paper-2: oklch(93% 0.006 75);
-  --paper-2-hover: oklch(93% 0.008 75);
-  --paper-3: oklch(88% 0.008 75);
-  --paper-4: oklch(89% 0.008 75);
-
-  /* アクセント（インクの赤・青と同じ値）。UIの選択状態・フォーカスリング等、
-     意味のある色として今後使っていく（コンポーネント再設計フェーズ）。 */
-  --accent-red: oklch(52% 0.2 25);
-  --accent-blue: oklch(48% 0.16 258);
-
-  --rule-line: oklch(78% 0.07 240 / 0.4);
 
   --space-1: 0.25rem;
   --space-2: 0.5rem;
   --space-3: 0.75rem;
   --space-4: 1rem;
   --space-5: 1.25rem;
-  --space-6: 1.5rem;
 
-  --radius-sm: 8px;
   --radius-md: 16px;
-  --radius-lg: 20px;
-  --radius-xl: 24px;
   --radius-full: 999px;
 
   --text-2xs: 0.6875rem;
-  --text-xs: 0.75rem;
   --text-sm: 0.8125rem;
-  --text-md: 0.9375rem;
-  --text-lg: 1.125rem;
-  --text-xl: 1.5rem;
 
   --duration-fast: 150ms;
-  --duration-base: 180ms;
 
-  /* 影は「近距離の締まった影＋遠距離のぼんやりした影」の2枚重ねを、カード系
-     （control-panel等）とポップオーバー系（テンプレート選択のシート等）の
-     2段階で共有している。 */
+  /* 近距離の締まった影＋遠距離のぼんやりした影の2枚重ね */
   --shadow-card: 0 1px 2px var(--ink-08), 0 4px 14px var(--ink-06);
-  --shadow-popover: 0 2px 6px var(--ink-08), 0 18px 48px var(--ink-12);
-  /* --- キャンバス（.circle-canvas/.archive-canvas）を紙の輪郭に沿って
-     浮かせる控えめな影（枠線の代わり、ユーザー指示）。filter:drop-shadow()は
-     box-shadowと違いカンマ区切りの複数指定を1つの関数にまとめられない
-     ため、--shadow-cardと同じ2枚重ねの考え方をdrop-shadow()の連結で表す
-     専用のトークンにする。box-shadowより一段弱め（近距離をさらに薄く、
-     遠距離も控えめなぼかしに留める）にして、強すぎる/大きすぎる影に
-     ならないようにしている。 --- */
-  --canvas-shadow: drop-shadow(0 1px 1px var(--ink-06)) drop-shadow(0 2px 6px var(--ink-08));
 }
 
-/* --- ダークテーマ（settingsMenu.tsの「設定」ボタン内、テーマ切り替え機能。
-   ユーザー指示：設定ボタンを追加してテーマ変更機能を入れたい）。
-   ライトテーマの色トークンは「暖色系グレースケール1本（インク）＋紙の明度
-   違い」の2系統だったため、ダークもこの構造をそのまま踏襲し、同じ色相・
-   彩度のまま明度だけ反転させている——インクは暗い色から明るい色へ、紙は
-   明るい色から暗い色へ。これにより「暖かい紙とインク」という世界観を
-   ダークテーマでも保っている（無彩色の黒ではなく、ごくわずかに暖色寄りの
-   黒に紙を沈める）。paper-1（カード・ポップオーバーの背景）が他のpaper-*
-   より明るい、という relative な明度関係もライトテーマと同じに保っている
-   （ダークUIでも「浮いている面はわずかに明るい」方が一貫して見えるため）。
-   3状態（自動/ライト/ダーク）の切り替えはhtml要素のdata-theme属性で行う
-   （settingsMenu.ts・theme.ts参照）——data-theme無し（既定）はOSの設定に
-   従い、"light"/"dark"は明示的に固定する。
-   paper-3/paper-4（縁取り・ポップオーバー等の一番沈んだ面）が明度10〜12%と
-   黒に近すぎ、コントラストが強すぎて疲れるという指摘（issue #138）を受け、
-   全paper-*の明度を底上げした（範囲の目安：旧10〜24% → 新18〜28%）——
-   Chromeのシークレットモードのような「黒ではなく灰色がかった」印象に近づける
-   一方、paper-*同士のrelativeな明度差・色相・彩度は変えていない。 --- */
+/* --- ダークテーマ（theme.ts / toolbar.ts のテーマ切り替え）。
+   ライトテーマの「暖色系グレースケール（インク）＋紙の明度違い」を踏襲し、
+   明度だけ反転させている——インクは暗い色から明るい色へ、紙は明るい色から
+   暗い色へ。3状態（自動/ライト/ダーク）の切り替えは html 要素の data-theme 属性で
+   行う（data-theme 無しは OS 設定に従い、"light"/"dark" は明示的に固定）。 --- */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-
-    --ink-solid: oklch(92% 0.006 75);
-    --ink-95: oklch(92% 0.006 75 / 0.95);
-    --ink-85: oklch(92% 0.006 75 / 0.85);
-    --ink-80: oklch(92% 0.006 75 / 0.8);
-    --ink-70: oklch(92% 0.006 75 / 0.7);
-    --ink-60: oklch(92% 0.006 75 / 0.6);
-    --ink-55: oklch(92% 0.006 75 / 0.55);
-    --ink-50: oklch(92% 0.006 75 / 0.5);
-    --ink-45: oklch(92% 0.006 75 / 0.45);
-    --ink-40: oklch(92% 0.006 75 / 0.4);
-    --ink-35: oklch(92% 0.006 75 / 0.35);
-    --ink-20: oklch(92% 0.006 75 / 0.2);
-    --ink-12: oklch(92% 0.006 75 / 0.12);
-    --ink-08: oklch(92% 0.006 75 / 0.08);
-    --ink-06: oklch(92% 0.006 75 / 0.06);
-
+    --ink-lch: 92% 0.006 75;
     --paper-canvas: oklch(26% 0.006 75);
-    --paper-0: oklch(27% 0.006 75);
     --paper-1: oklch(28% 0.005 75);
-    --paper-2: oklch(32% 0.006 75);
-    --paper-2-hover: oklch(34% 0.008 75);
-    --paper-3: oklch(36% 0.008 75);
-    --paper-4: oklch(24% 0.008 75);
-
-    --rule-line: oklch(78% 0.07 240 / 0.55);
   }
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-
-  --ink-solid: oklch(92% 0.006 75);
-  --ink-95: oklch(92% 0.006 75 / 0.95);
-  --ink-85: oklch(92% 0.006 75 / 0.85);
-  --ink-80: oklch(92% 0.006 75 / 0.8);
-  --ink-70: oklch(92% 0.006 75 / 0.7);
-  --ink-60: oklch(92% 0.006 75 / 0.6);
-  --ink-55: oklch(92% 0.006 75 / 0.55);
-  --ink-50: oklch(92% 0.006 75 / 0.5);
-  --ink-45: oklch(92% 0.006 75 / 0.45);
-  --ink-40: oklch(92% 0.006 75 / 0.4);
-  --ink-35: oklch(92% 0.006 75 / 0.35);
-  --ink-20: oklch(92% 0.006 75 / 0.2);
-  --ink-12: oklch(92% 0.006 75 / 0.12);
-  --ink-08: oklch(92% 0.006 75 / 0.08);
-  --ink-06: oklch(92% 0.006 75 / 0.06);
-
+  --ink-lch: 92% 0.006 75;
   --paper-canvas: oklch(26% 0.006 75);
-  --paper-0: oklch(27% 0.006 75);
   --paper-1: oklch(28% 0.005 75);
-  --paper-2: oklch(32% 0.006 75);
-  --paper-2-hover: oklch(34% 0.008 75);
-  --paper-3: oklch(36% 0.008 75);
-  --paper-4: oklch(24% 0.008 75);
-
-  --rule-line: oklch(78% 0.07 240 / 0.55);
 }
 
 :root[data-theme="light"] {
   color-scheme: light;
-}
-
-* {
-  box-sizing: border-box;
 }
 
 /* hidden属性は、同じ詳細度のクラスのdisplay指定より必ず優先させる */
@@ -181,6 +78,7 @@
    -webkit-touch-callout（iOSの長押しメニュー）は明示的に戻さないと
    ペースト等ができなくなるため、両方を書き戻す。 */
 * {
+  box-sizing: border-box;
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
@@ -502,10 +400,6 @@ body {
   pointer-events: auto;
 }
 
-.control-panel[hidden] {
-  display: none !important;
-}
-
 .new-sheet-btn {
   appearance: none;
   border: none;
@@ -532,10 +426,6 @@ body {
 
 .new-sheet-btn:active {
   transform: scale(0.98);
-}
-
-.new-sheet-btn[hidden] {
-  display: none !important;
 }
 
 /* --- インクの色スワッチ（toolbar.ts buildSwatch、#panel-swatch-slot）。

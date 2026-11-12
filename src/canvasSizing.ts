@@ -4,7 +4,7 @@ import type { Point } from "./types";
 /** キャンバスの一辺（px）の下限。極端に小さいウィンドウでも破綻しないようにする。 */
 const MIN_CANVAS_SIZE = 200;
 
-export interface CanvasGeometry {
+interface CanvasGeometry {
   width: number;
   height: number;
   /** px per 正規化単位（基準1単位あたりの論理px）。 */
@@ -16,7 +16,7 @@ export interface CanvasGeometry {
  * コンテナの利用可能な幅・高さを、正方形に制限せずそのまま返す（下限だけ
  * MIN_CANVAS_SIZEで保証し、極端に狭いレイアウトでの退化を防ぐ）。
  */
-export function computeContainerSize(
+function computeContainerSize(
   container: HTMLElement,
   minSize: number = MIN_CANVAS_SIZE
 ): { width: number; height: number } {

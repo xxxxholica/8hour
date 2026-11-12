@@ -1,4 +1,4 @@
-import { boxCorners, circleIntersectsBox, clampToRoundedRect, eraseFromStroke, isInsideClamp, restrictTranslation } from "./geometry";
+import { boxCorners, circleIntersectsBox, clampToRect, eraseFromStroke, isInsideClamp, restrictTranslation } from "./geometry";
 import { clearHistory, loadHistory, loadMemos, saveHistory, saveMemos } from "./storage";
 import { LINE_HEIGHT_MULTIPLIER } from "./textLayout";
 import type { Memo, MemoStyle, Point, Stroke, TextLayoutMode, TextMemo } from "./types";
@@ -11,7 +11,7 @@ const MAX_UNDO_HISTORY = 50;
 /** undo/redo履歴をlocalStorageへ書き出すまでの待ち時間（ms）。履歴が変わるたびに全体を
  *  書き直すと、ジェスチャーの開始ごとに重くなるため、少し待ってまとめて書く。 */
 const HISTORY_SAVE_DELAY_MS = 400;
-const DEFAULT_CLAMP = (p: Point): Point => clampToRoundedRect(p, 1, 0.2);
+const DEFAULT_CLAMP = (p: Point): Point => clampToRect(p, 1, 1);
 
 /**
  * メモ全体の状態を保持し、既定ではlocalStorageと同期させるストア。
